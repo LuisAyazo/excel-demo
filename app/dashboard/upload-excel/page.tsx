@@ -1,7 +1,33 @@
 'use client';
 
-import { useState, useRef } from 'react';
 import Image from 'next/image';
+import React, { useState, useRef, useEffect } from 'react';
+import { Bar, Line, Pie } from 'react-chartjs-2';
+import { 
+  Chart as ChartJS, 
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  PointElement, 
+  LineElement, 
+  ArcElement,
+  Title, 
+  Tooltip, 
+  Legend 
+} from 'chart.js';
+
+// Register ChartJS components
+ChartJS.register(
+  CategoryScale, 
+  LinearScale, 
+  BarElement, 
+  PointElement, 
+  LineElement, 
+  ArcElement,
+  Title, 
+  Tooltip, 
+  Legend
+);
 
 // Definición de tipos para los datos procesados
 type SheetDataItem = {
@@ -81,6 +107,18 @@ export default function UploadExcel() {
   const [dragActive, setDragActive] = useState(false);
   const [activeTab, setActiveTab] = useState(0); // Para controlar la pestaña activa
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Enhanced state variables for filtering and visualization
+  const [filterText, setFilterText] = useState('');
+  const [activeSheetIndex, setActiveSheetIndex] = useState(0);
+  const [showExportOptions, setShowExportOptions] = useState(false);
+  const [chartView, setChartView] = useState(false);
+  const [viewMode, setViewMode] = useState<'standard' | 'compact' | 'detailed'>('standard');
+  // Add missing state variables to fix errors
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Add processedData state variable to fix TypeScript error
+  const [processedData, setProcessedData] = useState<any>(null);
 
   // Drag & drop handlers
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -1343,6 +1381,550 @@ export default function UploadExcel() {
     console.log('Procesando datos para formulario...', previewData);
   };
 
+  // Improved function to handle monetary values and percentages more accurately
+  const formatValue = (value: any, format?: any): string => {
+    if (value === null || value === undefined) return '';
+    
+    if (typeof value === 'number') {
+      // Check for percentage formatting
+      if (format?.number_format?.includes('%')) {
+        return `${(value * 100).toFixed(2)}%`;
+      }
+      
+      // Check for currency formatting
+      if (format?.number_format?.includes('$') || 
+          format?.number_format?.includes('€') || 
+          format?.number_format?.includes('¥')) {
+        const symbol = format?.number_format?.includes('€') ? '€' : 
+                      format?.number_format?.includes('¥') ? '¥' : '$';
+        return `${symbol}${value.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      }
+      
+      // Regular number formatting
+      return value.toString();
+    }
+    
+    // Handle date values
+    if (value instanceof Date) {
+      return value.toLocaleDateString('es-CO');
+    }
+    
+    // Default to string representation
+    return value.toString();
+  };
+
+  // Enhanced Excel processor with better handling of special formats
+  const processExcelData = async (file: File): Promise<SheetGroup[]> => {
+    try {
+      setIsProcessing(true);
+      
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('include_format', 'true');
+      
+      const response = await fetch('http://localhost:8000/convert', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status} - ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      // Enhanced processing with better format handling
+      const processedSheetGroups = processExcelJson(data);
+      
+      // Improve table rendering with better format detection
+      // When showing tables, use the formatValue function to properly display numeric and date values
+      
+      setIsProcessing(false);
+      return processedSheetGroups;
+    } catch (error) {
+      setIsProcessing(false);
+      console.error("Error processing Excel file:", error);
+      setErrorMessage(`Error al procesar el archivo Excel: ${error instanceof Error ? error.message : 'Error desconocido'}`);
+      return [];
+    }
+  };
+
+  // Render a table cell with proper formatting
+  const renderCell = (cell: any, rowIndex: number, colIndex: number) => {
+    const value = cell?.value;
+    const format = cell?.format;
+    
+    // Apply formatting based on the cell's format information
+    const formattedValue = formatValue(value, format);
+    
+    // Apply styling based on font and cell properties
+    const cellStyle: React.CSSProperties = {
+      fontWeight: format?.font?.bold ? 'bold' : 'normal',
+      fontStyle: format?.font?.italic ? 'italic' : 'normal',
+      textAlign: format?.alignment?.horizontal || 'left',
+      backgroundColor: format?.fill?.color ? `#${format.fill.color.substring(2)}` : undefined,
+      padding: '6px',
+      border: '1px solid #e2e8f0',
+    };
+    
+    return (
+      <td key={`cell-${rowIndex}-${colIndex}`} style={cellStyle}>
+        {formattedValue}
+      </td>
+    );
+  };
+
+  // Filter function for Excel data
+  const getFilteredSections = () => {
+    if (!previewData || activeSheetIndex >= previewData.length) return new Map();
+    
+    const sheet = previewData[activeSheetIndex];
+    
+    if (!filterText) return sheet.sections;
+    
+    const filteredSections = new Map<string, SheetDataItem[]>();
+    
+    // Filter sections based on the filter text
+    sheet.sections.forEach((items, sectionName) => {
+      const filteredItems = items.filter(item => {
+        // Always include section titles
+        if (item.isTitle) return true;
+        
+        // For tables, search in the table data
+        if (item.isTable && item.tableData) {
+          return item.tableData.some(row => 
+            Object.values(row).some(cellValue => 
+              cellValue && cellValue.toString().toLowerCase().includes(filterText.toLowerCase())
+            )
+          );
+        }
+        
+        // For normal items, search in label and value
+        const labelMatch = item.label.toLowerCase().includes(filterText.toLowerCase());
+        const valueMatch = item.value && item.value.toString().toLowerCase().includes(filterText.toLowerCase());
+        
+        return labelMatch || valueMatch;
+      });
+      
+      if (filteredItems.length > 1 || (filteredItems.length === 1 && !filteredItems[0].isTitle)) {
+        filteredSections.set(sectionName, filteredItems);
+      }
+    });
+    
+    return filteredSections;
+  };
+
+  // Add export functionality
+  const handleExportToJSON = () => {
+    if (!previewData) return;
+    
+    const dataToExport = JSON.stringify(previewData, (key, value) => {
+      if (key === 'sections' && value instanceof Map) {
+        const obj: Record<string, SheetDataItem[]> = {};
+        value.forEach((v, k) => {
+          obj[k] = v;
+        });
+        return obj;
+      }
+      return value;
+    }, 2);
+    
+    const blob = new Blob([dataToExport], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'excel_processed_data.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Add function to generate CSV from data
+  const handleExportToCSV = () => {
+    if (!previewData || activeSheetIndex >= previewData.length) return;
+    
+    const sheet = previewData[activeSheetIndex];
+    let csvContent = 'Sheet,Section,Label,Value\n';
+    
+    sheet.sections.forEach((items, sectionName) => {
+      items.forEach(item => {
+        if (!item.isTitle && !item.isTable) {
+          const row = [
+            `"${sheet.sheetName.replace(/"/g, '""')}"`,
+            `"${sectionName.replace(/"/g, '""')}"`,
+            `"${item.label.replace(/"/g, '""')}"`,
+            `"${(item.value || '').toString().replace(/"/g, '""')}"`
+          ];
+          csvContent += row.join(',') + '\n';
+        }
+      });
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${sheet.sheetName.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_data.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Function to filter data based on search text
+  const getFilteredData = (data: any[]) => {
+    if (!filterText.trim()) return data;
+    
+    return data.map(sheet => {
+      // Create a deep copy of the sheet
+      const filteredSheet = { ...sheet };
+      
+      // Filter sections that contain the search text
+      if (filteredSheet.sections) {
+        filteredSheet.sections = filteredSheet.sections.filter((section: {
+          title?: string;
+          items?: any[];
+          tables?: any[];
+        }) => {
+          // Check if section title contains the search text
+          if (section.title && section.title.toLowerCase().includes(filterText.toLowerCase())) {
+            return true;
+          }
+          
+          // Check if any item in the section contains the search text
+          if (section.items) {
+            const matchingItems = section.items.filter(item => {
+              return (
+                (item.label && item.label.toLowerCase().includes(filterText.toLowerCase())) ||
+                (item.value && String(item.value).toLowerCase().includes(filterText.toLowerCase()))
+              );
+            });
+            
+            // Replace section items with only matching items
+            if (matchingItems.length > 0) {
+              section.items = matchingItems;
+              return true;
+            }
+          }
+          
+          // Check if any table in the section contains the search text
+          if (section.tables) {
+            const matchingTables = section.tables.map(table => {
+              if (table.title && table.title.toLowerCase().includes(filterText.toLowerCase())) {
+                return table;
+              }
+              
+              if (table.rows) {
+                const matchingRows = table.rows.filter((row: Record<string, any>) => {
+                  return Object.values(row).some(cell => 
+                    cell && String(cell).toLowerCase().includes(filterText.toLowerCase())
+                  );
+                });
+                
+                if (matchingRows.length > 0) {
+                  return { ...table, rows: matchingRows };
+                }
+              }
+              
+              return null;
+            }).filter(Boolean);
+            
+            if (matchingTables.length > 0) {
+              section.tables = matchingTables;
+              return true;
+            }
+          }
+          
+          return false;
+        });
+      }
+      
+      return filteredSheet;
+    });
+  };
+  
+  // Function to export data in different formats
+  const exportData = (format: 'json' | 'csv' | 'excel') => {
+    if (!previewData) return;
+    
+    const currentSheet = previewData[activeSheetIndex];
+    let exportedData: any;
+    let fileName: string;
+    let fileType: string;
+    let fileContent: string | Blob;
+    
+    switch (format) {
+      case 'json':
+        exportedData = currentSheet;
+        fileContent = JSON.stringify(exportedData, null, 2);
+        fileName = `${currentSheet.sheetName || 'sheet'}_export.json`;
+        fileType = 'application/json';
+        break;
+        
+      case 'csv':
+        // Convert sheet data to CSV format
+        exportedData = convertToFlatData(currentSheet);
+        fileContent = convertToCSV(exportedData);
+        fileName = `${currentSheet.sheetName || 'sheet'}_export.csv`;
+        fileType = 'text/csv';
+        break;
+        
+      case 'excel':
+        // For Excel export, we'd typically use a library like exceljs
+        // For this example, we'll use a CSV as a simple alternative
+        exportedData = convertToFlatData(currentSheet);
+        fileContent = convertToCSV(exportedData);
+        fileName = `${currentSheet.sheetName || 'sheet'}_export.csv`;
+        fileType = 'text/csv';
+        break;
+    }
+    
+    // Create a download link
+    const blob = new Blob([fileContent], { type: fileType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    // Close export options dropdown
+    setShowExportOptions(false);
+  };
+  
+  // Helper function to convert sheet data to flat format for CSV export
+  const convertToFlatData = (sheet: any) => {
+    const flatData: any[] = [];
+    
+    if (sheet.sections) {
+      sheet.sections.forEach((section: any) => {
+        // Add section title as a row
+        flatData.push({ Section: section.title });
+        
+        // Add section items
+        if (section.items) {
+          section.items.forEach((item: any) => {
+            flatData.push({
+              Label: item.label,
+              Value: item.value
+            });
+          });
+        }
+        
+        // Add section tables
+        if (section.tables) {
+          section.tables.forEach((table: any) => {
+            if (table.title) {
+              flatData.push({ Table: table.title });
+            }
+            
+            if (table.headers && table.rows) {
+              // Add table headers
+              const headerRow: any = {};
+              table.headers.forEach((header: string, index: number) => {
+                headerRow[`Col${index + 1}`] = header;
+              });
+              flatData.push(headerRow);
+              
+              // Add table rows
+              table.rows.forEach((row: any) => {
+                const flatRow: any = {};
+                Object.keys(row).forEach((key, index) => {
+                  flatRow[`Col${index + 1}`] = row[key];
+                });
+                flatData.push(flatRow);
+              });
+            }
+          });
+        }
+        
+        // Add a blank row between sections for better readability
+        flatData.push({});
+      });
+    }
+    
+    return flatData;
+  };
+  
+  // Helper function to convert data to CSV format
+  const convertToCSV = (data: any[]) => {
+    if (data.length === 0) return '';
+    
+    // Get all possible headers
+    const headers = Array.from(
+      new Set(
+        data.flatMap(row => Object.keys(row))
+      )
+    );
+    
+    // Create CSV header row
+    const csvContent = [
+      headers.join(','),
+      ...data.map(row => 
+        headers.map(header => {
+          const value = row[header] !== undefined ? row[header] : '';
+          // Handle values that need to be quoted (contain commas, quotes, or newlines)
+          if (typeof value === 'string' && (value.includes(',') || value.includes('"') || value.includes('\n'))) {
+            return `"${value.replace(/"/g, '""')}"`;
+          }
+          return value;
+        }).join(',')
+      )
+    ].join('\n');
+    
+    return csvContent;
+  };
+  
+  // Function to prepare chart data for budget visualizations
+  const prepareBudgetChartData = (section: any) => {
+    if (!section || !section.tables) return null;
+    
+    // Find budget tables in the section
+    const budgetTable = section.tables.find((table: any) => 
+      table.title && (
+        table.title.toLowerCase().includes('presupuesto') ||
+        table.title.toLowerCase().includes('budget')
+      )
+    );
+    
+    if (!budgetTable || !budgetTable.rows || budgetTable.rows.length === 0) {
+      return null;
+    }
+    
+    // Extract labels and amounts from the budget table
+    const labels: string[] = [];
+    const amounts: number[] = [];
+    
+    budgetTable.rows.forEach((row: any) => {
+      // Find the label column (usually the first column or one containing 'concepto', 'item', etc.)
+      const labelKey = Object.keys(row).find(key => 
+        typeof row[key] === 'string' && 
+        row[key].length > 0
+      );
+      
+      // Find the amount column (usually contains numbers or currency values)
+      const amountKey = Object.keys(row).find(key => {
+        const value = row[key];
+        // Check if it's a number or a string that can be converted to a number
+        if (typeof value === 'number') return true;
+        if (typeof value === 'string') {
+          // Try to extract numeric value from currency strings
+          const numericValue = parseFloat(value.replace(/[^0-9.-]+/g, ''));
+          return !isNaN(numericValue);
+        }
+        return false;
+      });
+      
+      if (labelKey && amountKey) {
+        labels.push(row[labelKey]);
+        
+        // Extract numeric value from the amount (handling currency strings)
+        let amount;
+        if (typeof row[amountKey] === 'number') {
+          amount = row[amountKey];
+        } else {
+          amount = parseFloat(row[amountKey].replace(/[^0-9.-]+/g, ''));
+        }
+        
+        amounts.push(isNaN(amount) ? 0 : amount);
+      }
+    });
+    
+    return {
+      labels,
+      datasets: [
+        {
+          label: budgetTable.title || 'Presupuesto',
+          data: amounts,
+          backgroundColor: [
+            'rgba(54, 162, 235, 0.6)',
+            'rgba(255, 99, 132, 0.6)',
+            'rgba(255, 206, 86, 0.6)',
+            'rgba(75, 192, 192, 0.6)',
+            'rgba(153, 102, 255, 0.6)',
+            'rgba(255, 159, 64, 0.6)',
+            'rgba(199, 199, 199, 0.6)',
+          ],
+          borderColor: [
+            'rgba(54, 162, 235, 1)',
+            'rgba(255, 99, 132, 1)',
+            'rgba(255, 206, 86, 1)',
+            'rgba(75, 192, 192, 1)',
+            'rgba(153, 102, 255, 1)',
+            'rgba(255, 159, 64, 1)',
+            'rgba(199, 199, 199, 1)',
+          ],
+          borderWidth: 1,
+        },
+      ],
+    };
+  };
+
+  // Function to render budget charts
+  const renderBudgetChart = (section: any) => {
+    const chartData = prepareBudgetChartData(section);
+    
+    if (!chartData) {
+      return (
+        <div className="p-4 bg-gray-50 rounded-md text-center text-gray-500">
+          No hay datos disponibles para visualizar en gráfico
+        </div>
+      );
+    }
+    
+    const chartOptions = {
+      responsive: true,
+      plugins: {
+        legend: {
+          position: 'top' as const,
+        },
+        tooltip: {
+          callbacks: {
+            label: function(context: any) {
+              let label = context.dataset.label || '';
+              if (label) {
+                label += ': ';
+              }
+              if (context.parsed.y !== null) {
+                label += new Intl.NumberFormat('es-CO', {
+                  style: 'currency',
+                  currency: 'COP',
+                }).format(context.parsed.y);
+              }
+              return label;
+            }
+          }
+        }
+      },
+    };
+    
+    // Determine which chart type to use based on data characteristics
+    const numDataPoints = chartData.labels.length;
+    
+    return (
+      <div className="p-4 bg-white rounded-md shadow-sm">
+        <h3 className="text-lg font-medium mb-4 text-center">
+          Visualización de {section.title || 'Presupuesto'}
+        </h3>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-white p-4 rounded-md shadow-sm">
+            <h4 className="text-md font-medium mb-2 text-center">Gráfico de Barras</h4>
+            <Bar data={chartData} options={chartOptions} />
+          </div>
+          
+          <div className="bg-white p-4 rounded-md shadow-sm">
+            <h4 className="text-md font-medium mb-2 text-center">Gráfico Circular</h4>
+            <Pie data={chartData} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-8">
       <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6 transition-shadow hover:shadow-lg">
@@ -1350,7 +1932,7 @@ export default function UploadExcel() {
           <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7 mr-3 text-primary" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
           </svg>
-          Cargar Archivo Excel
+          Cargar y Visualizar Archivo Excel
         </h1>
         
         <div className="max-w-2xl mx-auto">
@@ -1416,11 +1998,11 @@ export default function UploadExcel() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                   </svg>
-                  <span className="text-white ml-2">Procesando...</span>
+                  <span className="ml-2">Procesando...</span>
                 </>
               ) : (
                 <>
-                  <svg className="h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <svg className="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clipRule="evenodd" />
                   </svg>
                   <span className="ml-2">Subir y Analizar</span>
@@ -1428,643 +2010,382 @@ export default function UploadExcel() {
               )}
             </button>
           </div>
-          
-          {/* Mensajes de estado mejorados */}
-          {uploadStatus === 'success' && (
-            <div className="mt-6 p-4 border border-green-200 rounded-md bg-green-50 text-green-700 shadow-sm">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-green-100 rounded-full p-1">
-                  <svg className="h-5 w-5 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <p className="ml-3 font-medium">El archivo se ha cargado y analizado correctamente.</p>
-              </div>
-            </div>
-          )}
-          
-          {uploadStatus === 'error' && (
-            <div className="mt-6 p-4 border border-red-200 rounded-md bg-red-50 text-red-700 shadow-sm">
-              <div className="flex items-center">
-                <div className="flex-shrink-0 bg-red-100 rounded-full p-1">
-                  <svg className="h-5 w-5 text-red-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 0 001.414-1.414L11.414 10l1.293-1.293a1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <p className="ml-3 font-medium">Ha ocurrido un error al procesar el archivo. Por favor, inténtalo de nuevo.</p>
-              </div>
-            </div>
-          )}
         </div>
+        
+        {/* Mensajes de estado */}
+        {uploadStatus === 'success' && (
+          <div className="mt-6 p-4 border border-green-200 rounded-md bg-green-50 text-green-700">
+            <div className="flex items-center">
+              <svg className="h-5 w-5 text-green-500 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+              <span>Archivo procesado correctamente.</span>
+            </div>
+          </div>
+        )}
+        
+        {uploadStatus === 'error' && (
+          <div className="mt-6 p-4 border border-red-200 rounded-md bg-red-50 text-red-700">
+            <div className="flex items-center">
+              <svg className="h-5 w-5 text-red-500 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span>Ocurrió un error al procesar el archivo. Intente nuevamente.</span>
+            </div>
+          </div>
+        )}
       </div>
       
-      {/* Vista previa de los datos con diseño mejorado */}
-      {previewData && previewData.length > 0 && (
-        <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-medium text-gray-900 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-primary" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                  <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-                </svg>
-                Vista previa de datos
-              </h2>
-              <button
-                onClick={handleProcessData}
-                className="px-4 py-2 rounded-lg font-medium bg-primary text-white hover:bg-primary-dark shadow-sm hover:shadow-md transition-all flex items-center"
+      {/* Vista previa con mejoras */}
+      {previewData && (
+        <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
+          <div className="flex justify-between items-center mb-6 border-b pb-4">
+            <h2 className="text-xl font-bold text-gray-900 flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 mr-2 text-primary" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 6.477V16h2a1 1 0 110 2H7a1 1 0 110-2h2V6.477L6.237 7.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.617a1 1 0 01.894-1.788l1.599.799L9 4.323V3a1 1 0 011-1zm-5 8.274l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L5 10.274zm10 0l-.818 2.552c.25.112.526.174.818.174.292 0 .569-.062.818-.174L15 10.274z" clipRule="evenodd" />
+              </svg>
+              Vista Previa de Datos
+            </h2>
+            
+            <div className="flex space-x-2">
+              <button 
+                onClick={() => setShowExportOptions(!showExportOptions)}
+                className="px-3 py-2 rounded-md text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 flex items-center"
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd" />
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
                 </svg>
-                Usar para Formulario
+                Exportar
+              </button>
+              
+              <button
+                onClick={() => setChartView(!chartView)}
+                className={`px-3 py-2 rounded-md text-sm ${chartView ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} flex items-center`}
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
+                  <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
+                </svg>
+                {chartView ? 'Ver Tabla' : 'Ver Gráfico'}
               </button>
             </div>
           </div>
           
-          <div className="p-6 space-y-6">
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 shadow-sm">
-              <h3 className="text-xl font-medium text-blue-900 mb-2 flex items-center">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                Datos extraídos del archivo
-              </h3>
-              <p className="text-blue-700">
-                Se detectaron <span className="font-semibold">{previewData.reduce((total, sheet) => total + sheet.items.length, 0)} campos</span> en <span className="font-semibold">{previewData.length} hojas</span> del archivo Excel.
-              </p>
-            </div>
-            
-            {/* Pestañas para cambiar entre hojas */}
-            <div className="border-b border-gray-200 bg-white rounded-t-lg shadow-sm">
-              <nav className="-mb-px flex space-x-2 overflow-x-auto px-4" aria-label="Tabs">
-                {previewData.map((sheet, idx) => {
-                  const isActive = activeTab === idx;
-                  let tabClasses = `py-3 px-4 text-sm font-medium rounded-t-lg border-b-2 focus:outline-none transition-all flex items-center `;
-                  
-                  if (isActive) {
-                    if (sheet.color === 'blue') {
-                      tabClasses += 'text-blue-700 border-blue-500 bg-blue-50';
-                    } else if (sheet.color === 'green') {
-                      tabClasses += 'text-green-700 border-green-500 bg-green-50';
-                    } else if (sheet.color === 'purple') {
-                      tabClasses += 'text-purple-700 border-purple-500 bg-purple-50';
-                    } else {
-                      tabClasses += 'text-gray-700 border-gray-500 bg-gray-50';
-                    }
-                  } else {
-                    tabClasses += 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300 hover:bg-gray-50';
-                  }
-                  
-                  let iconComponent;
-                  if (sheet.color === 'blue') {
-                    iconComponent = (
-                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-2 ${isActive ? 'text-blue-500' : 'text-gray-400'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 011.414 0L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                      </svg>
-                    );
-                  } else if (sheet.color === 'green') {
-                    iconComponent = (
-                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-2 ${isActive ? 'text-green-500' : 'text-gray-400'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-                        <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-                      </svg>
-                    );
-                  } else if (sheet.color === 'purple') {
-                    iconComponent = (
-                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-2 ${isActive ? 'text-purple-500' : 'text-gray-400'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M2 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 002 2H4a2 2 0 01-2-2V5zm3 1h6v4H5V6zm6 6H5v2h6v-2z" clipRule="evenodd" />
-                      </svg>
-                    );
-                  } else {
-                    iconComponent = (
-                      <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 mr-2 ${isActive ? 'text-gray-600' : 'text-gray-400'}`} viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 011.414 0L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
-                      </svg>
-                    );
-                  }
-                  
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => setActiveTab(idx)}
-                      className={tabClasses}
-                    >
-                      {iconComponent}
-                      {sheet.title || "Hoja " + (idx + 1)}
-                      <span className={`ml-2 ${isActive ? 'bg-white' : 'bg-gray-100'} text-gray-600 py-0.5 px-2 rounded-full text-xs`}>
-                        {sheet.items.length}
-                      </span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-
-            <div className="grid grid-cols-1 gap-8">
-              {previewData.map((sheetGroup, idx) => {
-                if (idx !== activeTab) return null;
-                
-                if (!sheetGroup || !sheetGroup.color) {
-                  console.warn("Hoja sin formato:", sheetGroup);
-                  return (
-                    <div key={idx} className="p-4 bg-red-50 border border-red-200 rounded-lg">
-                      <p className="text-red-700">Error: No se pudieron cargar correctamente los datos de esta hoja.</p>
-                    </div>
-                  );
-                }
-
-                const bgGradient = 
-                  sheetGroup.color === 'blue' ? 'from-blue-50 to-indigo-50' :
-                  sheetGroup.color === 'green' ? 'from-emerald-50 to-teal-50' :
-                  sheetGroup.color === 'purple' ? 'from-purple-50 to-fuchsia-50' :
-                  'from-gray-50 to-slate-50';
-                
-                const bgHeader = 
-                  sheetGroup.color === 'blue' ? 'bg-blue-600' :
-                  sheetGroup.color === 'green' ? 'bg-emerald-600' :
-                  sheetGroup.color === 'purple' ? 'bg-purple-600' :
-                  'bg-gray-600';
-                  
-                const textColor = 
-                  sheetGroup.color === 'blue' ? 'text-blue-700' :
-                  sheetGroup.color === 'green' ? 'text-emerald-700' :
-                  sheetGroup.color === 'purple' ? 'text-purple-700' :
-                  'text-gray-700';
-                  
-                const ringColor = 
-                  sheetGroup.color === 'blue' ? 'focus:ring-blue-500/50' :
-                  sheetGroup.color === 'green' ? 'focus:ring-emerald-500/50' :
-                  sheetGroup.color === 'purple' ? 'focus:ring-purple-500/50' :
-                  'focus:ring-gray-500/50';
-                
-                return (
-                  <div 
-                    id={`sheet-${idx}`}
-                    key={idx} 
-                    className={`border rounded-lg overflow-hidden bg-gradient-to-r ${bgGradient} shadow-md scroll-mt-10`}
-                  >
-                    <div className={`${bgHeader} text-white py-4 px-6`}>
-                      <h3 className="text-xl font-semibold flex items-center">
-                        {sheetGroup.color === 'blue' && (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 011.414 0L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                        {sheetGroup.color === 'green' && (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-                            <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-                          </svg>
-                        )}
-                        {sheetGroup.color === 'purple' && (
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
-                            <path fillRule="evenodd" d="M2 5a2 2 0 012-2h8a2 2 0 012 2v10a2 2 0 002 2H4a2 2 0 01-2-2V5zm3 1h6v4H5V6zm6 6H5v2h6v-2z" clipRule="evenodd" />
-                          </svg>
-                        )}
-                        {sheetGroup.title || "Hoja " + (idx + 1)}
-                        <span className="ml-2 text-sm opacity-80 bg-white/20 px-2 py-0.5 rounded-full">
-                          {sheetGroup.items.length} campos
-                        </span>
-                      </h3>
-                    </div>
-                    
-                    <div className="p-6 space-y-6">
-                      {/* Iterar por las secciones de la hoja activa */}
-                      {sheetGroup.sections && Array.from(sheetGroup.sections).map(([sectionName, sectionItems], sectionIdx) => {
-                        if (!sectionItems || sectionItems.length === 0) return null;
-                        
-                        // Verificar si la sección tiene algún título
-                        const sectionTitle = sectionItems.find(item => item.isTitle);
-                        const sectionDescription = sectionTitle && sectionTitle.value ? 
-                          String(sectionTitle.value) : 
-                          "Información de " + sectionName.toLowerCase();
-                        
-                        // Filtrar para mostrar solo los items de datos (no los títulos)
-                        const dataItems = sectionItems.filter(item => !item.isTitle);
-                        
-                        if (dataItems.length === 0) return null;
-                        
-                        let sectionBg = '';
-                        let sectionBorder = '';
-                        
-                        if (sheetGroup.color === 'blue') {
-                          sectionBg = 'bg-gradient-to-r from-blue-600 to-blue-700';
-                          sectionBorder = 'border-blue-200';
-                        } else if (sheetGroup.color === 'green') {
-                          sectionBg = 'bg-gradient-to-r from-emerald-600 to-emerald-700';
-                          sectionBorder = 'border-emerald-200';
-                        } else if (sheetGroup.color === 'purple') {
-                          sectionBg = 'bg-gradient-to-r from-purple-600 to-purple-700';
-                          sectionBorder = 'border-purple-200';
-                        } else {
-                          sectionBg = 'bg-gradient-to-r from-gray-600 to-gray-700';
-                          sectionBorder = 'border-gray-200';
-                        }
-                        
-                        return (
-                          <div key={sectionIdx} className={`border rounded-lg overflow-hidden bg-white shadow-md ${sectionBorder}`}>
-                            <div className={`${sectionBg} text-white py-3 px-4`}>
-                              <div className="flex justify-between items-center">
-                                <h3 className="text-lg font-semibold flex items-center">
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                  </svg>
-                                  {sectionName}
-                                </h3>
-                                <div className="text-xs opacity-90 bg-white/20 px-2 py-1 rounded">
-                                  {sectionDescription}
-                                </div>
-                              </div>
-                            </div>
-                            
-                            <div className="p-5">
-                              {/* Procesamiento especial para tablas de presupuesto */}
-                              {dataItems.some(item => item.isSpecialBudgetTable) ? (
-                                <div className="bg-gray-50 border rounded-md p-4 hover:shadow-sm transition-shadow col-span-full">
-                                  <label className={`block text-sm font-semibold ${textColor} uppercase mb-3 flex items-center`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                                    </svg>
-                                    PRESUPUESTO
-                                  </label>
-                                  
-                                  <div className="overflow-x-auto border border-gray-200 rounded-md shadow-sm">
-                                    <table className="min-w-full divide-y divide-gray-200">
-                                      <thead className="bg-gray-100">
-                                        <tr>
-                                          <th 
-                                            className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-r"
-                                          >
-                                            PRESUPUESTO
-                                          </th>
-                                          <th 
-                                            className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-r"
-                                          >
-                                            VALOR
-                                          </th>
-                                          <th 
-                                            className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"
-                                          >
-                                            % PARTICIPACIÓN
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="bg-white divide-y divide-gray-200">
-                                        {dataItems.find(item => item.isSpecialBudgetTable)?.tableData?.map((row, rowIdx) => (
-                                          <tr key={rowIdx} className={`${rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 transition-colors`}>
-                                            <td className="px-4 py-3 border-r font-medium text-gray-700">
-                                              {row["PRESUPUESTO"] || '-'}
-                                            </td>
-                                            <td className="px-4 py-3 border-r text-emerald-700 font-medium whitespace-nowrap">
-                                              {row["VALOR"] || '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-blue-700 font-medium whitespace-nowrap">
-                                              {row["% PARTICIPACIÓN"] || '-'}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              ) : dataItems.some(item => item.isSpecialFondoRotatorioTable) ? (
-                                <div className="bg-gray-50 border rounded-md p-4 hover:shadow-sm transition-shadow col-span-full">
-                                  <label className={`block text-sm font-semibold ${textColor} uppercase mb-3 flex items-center`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    FONDO ROTATORIO
-                                  </label>
-                                  
-                                  <div className="overflow-x-auto border border-gray-200 rounded-md shadow-sm">
-                                    <table className="min-w-full divide-y divide-gray-200">
-                                      <thead className="bg-gray-100">
-                                        <tr>
-                                          <th 
-                                            className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-r"
-                                          >
-                                            FONDO ROTATORIO
-                                          </th>
-                                          <th 
-                                            className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider"
-                                          >
-                                            ASIGNACIÓN TOTAL
-                                          </th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="bg-white divide-y divide-gray-200">
-                                        {dataItems.find(item => item.isSpecialFondoRotatorioTable)?.tableData?.map((row, rowIdx) => (
-                                          <tr key={rowIdx} className={`${rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-emerald-50 transition-colors`}>
-                                            <td className="px-4 py-3 border-r font-medium text-gray-700">
-                                              {row["FONDO ROTATORIO"] || '-'}
-                                            </td>
-                                            <td className="px-4 py-3 text-emerald-700 font-medium whitespace-nowrap">
-                                              {row["ASIGNACIÓN TOTAL"] || '-'}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              ) : (
-                                // Procesamiento normal para secciones que no son presupuesto
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                                  {dataItems.map((item, itemIdx) => {
-                                    // Si es un campo que pertenece a una pareja y no es el primero, saltarlo
-                                    if (item.compactPairOf) return null;
-                                    
-                                    if (item.isTable && item.tableData && item.tableHeaders && item.tableHeaders.length > 0) {
-                                      // Visualización para tablas complejas
-                                      return (
-                                        <div key={itemIdx} className="bg-gray-50 border rounded-md p-4 hover:shadow-md transition-shadow col-span-full">
-                                          <label className={`block text-sm font-semibold ${textColor} uppercase mb-3 flex items-center`}>
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                            </svg>
-                                            {item.label || "Tabla"}
-                                          </label>
-                                          
-                                          <div className="overflow-x-auto border border-gray-200 rounded-md shadow-sm">
-                                            <table className="min-w-full divide-y divide-gray-200">
-                                              <thead className="bg-gray-100">
-                                                <tr>
-                                                  {item.tableHeaders.map((header, headerIdx) => (
-                                                    <th 
-                                                      key={headerIdx}
-                                                      className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider border-r last:border-r-0"
-                                                    >
-                                                      {header || `Columna ${headerIdx + 1}`}
-                                                    </th>
-                                                  ))}
-                                                </tr>
-                                              </thead>
-                                              <tbody className="bg-white divide-y divide-gray-200">
-                                                {item.tableData.map((row, rowIdx) => (
-                                                  <tr key={rowIdx} className={`${rowIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}>
-                                                    {(item.tableHeaders || []).map((header, cellIdx) => {
-                                                      const cellValue = row[header];
-                                                      
-                                                      // Determine cell styling based on content and header type
-                                                      let cellClass = 'px-4 py-3 border-r last:border-r-0';
-                                                      
-                                                      // Format money values
-                                                      if (typeof cellValue === 'string' && 
-                                                          (cellValue.includes('$') || 
-                                                           /^\d{1,3}(,\d{3})*(\.\d+)?$/.test(cellValue) || // Numbers with commas
-                                                           header.toLowerCase().includes('valor') || 
-                                                           header.toLowerCase().includes('total') ||
-                                                           header.toLowerCase().includes('asignación') ||
-                                                           header.toLowerCase().includes('remuneración'))) {
-                                                        return (
-                                                          <td key={cellIdx} className={`${cellClass} text-emerald-700 font-medium whitespace-nowrap`}>
-                                                            {cellValue !== null && cellValue !== undefined ? String(cellValue) : '-'}
-                                                          </td>
-                                                        );
-                                                      }
-                                                      
-                                                      // Format percentage values
-                                                      if (typeof cellValue === 'string' && 
-                                                          (cellValue.includes('%') || 
-                                                           header.toLowerCase().includes('participación') ||
-                                                           header.toLowerCase().includes('porcentaje'))) {
-                                                        return (
-                                                          <td key={cellIdx} className={`${cellClass} text-blue-700 font-medium whitespace-nowrap`}>
-                                                            {cellValue !== null && cellValue !== undefined ? String(cellValue) : '-'}
-                                                          </td>
-                                                        );
-                                                      }
-                                                      
-                                                      // Format formula results
-                                                      if (typeof cellValue === 'string' && 
-                                                          (cellValue === 'Valor calculado' || 
-                                                           cellValue.includes('Calculado por fórmula'))) {
-                                                        return (
-                                                          <td key={cellIdx} className={`${cellClass} text-indigo-600 italic font-medium`}>
-                                                            {cellValue}
-                                                          </td>
-                                                        );
-                                                      }
-                                                      
-                                                      // Format name/category columns (usually first column)
-                                                      if (cellIdx === 0 || 
-                                                          header.toLowerCase().includes('nombre') || 
-                                                          header.toLowerCase().includes('categoría') ||
-                                                          header.toLowerCase().includes('presupuesto') ||
-                                                          header.toLowerCase().includes('fondo')) {
-                                                        return (
-                                                          <td key={cellIdx} className={`${cellClass} font-medium text-gray-700`}>
-                                                            {cellValue !== null && cellValue !== undefined ? String(cellValue) : '-'}
-                                                          </td>
-                                                        );
-                                                      }
-                                                      
-                                                      // Default cell formatting
-                                                      return (
-                                                        <td key={cellIdx} className={`${cellClass} text-gray-700`}>
-                                                          {cellValue !== null && cellValue !== undefined ? String(cellValue) : '-'}
-                                                        </td>
-                                                      );
-                                                    })}
-                                                  </tr>
-                                                ))}
-                                              </tbody>
-                                            </table>
-                                          </div>
-                                        </div>
-                                      );
-                                    }
-                                    
-                                    // Visualización para campos normales
-                                    const fieldColSpan = item.compactPair ? "col-span-1" : "md:col-span-2";
-                                    const pairItem = item.compactPair ? 
-                                      dataItems.find(di => di.key === item.compactPair) : null;
-                                    
-                                    return (
-                                      <div key={itemIdx} className={`${fieldColSpan} flex flex-col md:flex-row gap-4`}>
-                                        {/* Primer campo */}
-                                        <div className="bg-gray-50 border rounded-md p-4 hover:shadow-md transition-shadow flex-1">
-                                          <label className={`block text-xs font-semibold ${textColor} uppercase mb-2 flex items-center`}>
-                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                              <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                            </svg>
-                                            {item.label || "Campo"}
-                                          </label>
-                                          {item.isFormula ? (
-                                            <div className="w-full p-2 border border-gray-200 rounded-md bg-white text-indigo-600 italic font-medium focus:outline-none focus:ring-2 shadow-sm">
-                                              {item.value !== undefined && item.value !== null ? String(item.value) : "-"}
-                                            </div>
-                                          ) : (
-                                            <input 
-                                              type="text"
-                                              value={item.value !== undefined && item.value !== null ? String(item.value) : ""}
-                                              readOnly
-                                              className={`w-full p-2 border border-gray-200 rounded-md bg-white shadow-sm
-                                                ${item.value && typeof item.value === 'string' && item.value.includes('%') ? 'text-blue-700 font-medium' : 
-                                                  item.value && typeof item.value === 'string' && item.value.includes('$') ? 'text-emerald-700 font-medium' : 
-                                                  'text-gray-800'} 
-                                                focus:outline-none focus:ring-2 ${ringColor}`}
-                                            />
-                                          )}
-                                        </div>
-                                        
-                                        {/* Campo pareja (si existe) */}
-                                        {pairItem && (
-                                          <div className="bg-gray-50 border rounded-md p-4 hover:shadow-md transition-shadow flex-1">
-                                            <label className={`block text-xs font-semibold ${textColor} uppercase mb-2 flex items-center`}>
-                                              <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                              </svg>
-                                              {pairItem.label || "Campo"}
-                                            </label>
-                                            {pairItem.isFormula ? (
-                                              <div className="w-full p-2 border border-gray-200 rounded-md bg-white text-indigo-600 italic font-medium focus:outline-none focus:ring-2 shadow-sm">
-                                                {pairItem.value !== undefined && pairItem.value !== null ? String(pairItem.value) : "-"}
-                                              </div>
-                                            ) : (
-                                              <input 
-                                                type="text"
-                                                value={pairItem.value !== undefined && pairItem.value !== null ? String(pairItem.value) : ""}
-                                                readOnly
-                                                className={`w-full p-2 border border-gray-200 rounded-md bg-white shadow-sm
-                                                  ${pairItem.value && typeof pairItem.value === 'string' && pairItem.value.includes('%') ? 'text-blue-700 font-medium' : 
-                                                    pairItem.value && typeof pairItem.value === 'string' && pairItem.value.includes('$') ? 'text-emerald-700 font-medium' : 
-                                                    'text-gray-800'} 
-                                                  focus:outline-none focus:ring-2 ${ringColor}`}
-                                              />
-                                            )}
-                                          </div>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            <div className="mt-8 bg-gray-50 p-4 rounded-md border border-gray-200 shadow-sm">
-              <div className="flex justify-between items-center mb-2">
-                <h4 className="text-sm font-medium text-gray-700 flex items-center">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                  </svg>
-                  Representación JSON:
-                </h4>
+          {/* Panel de exportación */}
+          {showExportOptions && (
+            <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200 flex items-center justify-between">
+              <div className="text-sm text-gray-700">
+                <p className="font-medium">Exportar datos procesados</p>
+                <p className="text-xs text-gray-500">Seleccione el formato de exportación</p>
+              </div>
+              <div className="flex space-x-2">
                 <button 
-                  className="text-xs bg-gray-700 text-white px-3 py-1 rounded hover:bg-gray-600 transition-colors flex items-center shadow-sm"
-                  onClick={() => {
-                    try {
-                      navigator.clipboard.writeText(JSON.stringify(previewData, null, 2));
-                      // Mostrar una notificación de éxito
-                    } catch (error) {
-                      console.error('Error al copiar al portapapeles:', error);
-                    }
-                  }}
+                  onClick={handleExportToJSON}
+                  className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-md text-sm font-medium"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V5zm2 0a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                  </svg>
-                  Copiar JSON
+                  Exportar JSON
+                </button>
+                <button 
+                  onClick={handleExportToCSV}
+                  className="px-3 py-2 bg-green-100 hover:bg-green-200 text-green-700 rounded-md text-sm font-medium"
+                >
+                  Exportar CSV
                 </button>
               </div>
-              <div className="relative">
-                <pre className="bg-gray-800 text-green-400 p-4 rounded-md text-sm overflow-x-auto max-h-96 shadow-inner">
-                  {JSON.stringify(previewData, null, 2)}
-                </pre>
-                <div className="absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-gray-800 to-transparent pointer-events-none rounded-b-md"></div>
-              </div>
             </div>
+          )}
+          
+          {/* Filtro y navegación de hojas */}
+          <div className="mb-6 flex flex-wrap items-center gap-4">
+            <div className="relative flex-1">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                placeholder="Filtrar contenido..."
+                value={filterText}
+                onChange={(e) => setFilterText(e.target.value)}
+                className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-md focus:ring-2 focus:ring-primary focus:border-primary"
+              />
+            </div>
+            
+            {/* Pestañas de hojas */}
+            <div className="flex overflow-x-auto gap-1 p-1 bg-gray-100 rounded-md">
+              {previewData.map((sheet, index) => (
+                <button
+                  key={`sheet-${index}`}
+                  onClick={() => setActiveSheetIndex(index)}
+                  className={`px-3 py-2 text-sm font-medium rounded-md whitespace-nowrap ${
+                    activeSheetIndex === index
+                      ? 'bg-white text-primary shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {sheet.title}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          {/* Contenido de la hoja activa */}
+          {previewData && activeSheetIndex < previewData.length && (
+            <div>
+              {chartView ? (
+                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 min-h-[400px]">
+                  <h3 className="text-lg font-medium text-center mb-4">Visualización de Datos</h3>
+                  
+                  {/* Aquí iría el componente de gráficos */}
+                  <div className="flex justify-center items-center h-80 text-gray-500">
+                    <p>Gráficos de datos disponibles próximamente</p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  {/* Mostrar secciones filtradas */}
+                  {Array.from(getFilteredSections()).map(([sectionName, items]) => (
+                    <div key={sectionName} className="mb-8">
+                      <h3 className="text-lg font-medium text-gray-900 mb-4 pb-2 border-b">
+                        {sectionName}
+                      </h3>
+                      
+                      <div className="space-y-6">
+                        {items.filter((item: SheetDataItem) => !item.isTitle).map((item: SheetDataItem) => (
+                          <div key={item.key + item.row} className="border border-gray-200 rounded-md overflow-hidden bg-white">
+                            {item.isTable ? (
+                              <div>
+                                <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                                  <h4 className="font-medium text-gray-800">{item.label}</h4>
+                                </div>
+                                
+                                <div className="overflow-x-auto">
+                                  <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                      <tr>
+                                        {item.tableHeaders?.map((header: string, headerIndex: number) => (
+                                          <th 
+                                            key={`header-${headerIndex}`} 
+                                            className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                                          >
+                                            {header}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                      {item.tableData?.map((row: Record<string, any>, rowIndex: number) => (
+                                        <tr key={`row-${rowIndex}`} className={rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                          {item.tableHeaders?.map((header: string, colIndex: number) => (
+                                            <td 
+                                              key={`cell-${rowIndex}-${colIndex}`} 
+                                              className="px-6 py-4 whitespace-nowrap text-sm text-gray-800"
+                                            >
+                                              {row[header]?.toString() || ''}
+                                            </td>
+                                          ))}
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            ) : item.isCompact && item.compactPair ? (
+                              <div className="grid grid-cols-2 divide-x divide-gray-200">
+                                <div className="p-4">
+                                  <p className="text-sm font-medium text-gray-500">{item.label}</p>
+                                  <p className="mt-1 text-lg font-semibold">{item.value?.toString()}</p>
+                                </div>
+                                
+                                {items.find((i: SheetDataItem) => i.key === item.compactPair) && (
+                                  <div className="p-4">
+                                    <p className="text-sm font-medium text-gray-500">
+                                      {items.find((i: SheetDataItem) => i.key === item.compactPair)?.label}
+                                    </p>
+                                    <p className="mt-1 text-lg font-semibold">
+                                      {items.find((i: SheetDataItem) => i.key === item.compactPair)?.value?.toString()}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            ) : !item.compactPairOf && (
+                              <div className="p-4">
+                                <p className="text-sm font-medium text-gray-500">{item.label}</p>
+                                <p className="mt-1">{item.value?.toString()}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {Array.from(getFilteredSections()).length === 0 && (
+                    <div className="p-6 text-center text-gray-500 border border-gray-200 rounded-lg">
+                      {filterText ? 
+                        'No se encontraron resultados para su búsqueda.' : 
+                        'No hay datos disponibles en esta hoja.'
+                      }
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
+          {/* Botón de continuar */}
+          <div className="mt-8 flex justify-end">
+            <button
+              onClick={handleProcessData}
+              className="px-6 py-3 bg-primary hover:bg-primary-dark text-white font-medium rounded-lg shadow-sm hover:shadow-md transition-all"
+            >
+              Continuar al Formulario
+            </button>
           </div>
         </div>
       )}
-      
-      {/* Instrucciones con diseño mejorado */}
-      <div className="bg-white rounded-lg shadow-md border border-gray-200 p-6">
-        <h2 className="text-lg font-medium text-gray-900 mb-4 border-b pb-3 flex items-center">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          Instrucciones de uso
-        </h2>
-        
-        <div className="space-y-5">
-          <div className="flex p-3 border-l-4 border-primary bg-blue-50 rounded-r-md">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white shadow-sm">
-                1
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-base text-gray-700">Selecciona un archivo Excel (.xlsx o .xls) haciendo clic en el área de carga.</p>
-            </div>
-          </div>
-          
-          <div className="flex p-3 border-l-4 border-primary bg-blue-50 rounded-r-md">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white shadow-sm">
-                2
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-base text-gray-700">Haz clic en "Subir y Analizar" para procesar los datos del archivo.</p>
-            </div>
-          </div>
-          
-          <div className="flex p-3 border-l-4 border-primary bg-blue-50 rounded-r-md">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white shadow-sm">
-                3
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-base text-gray-700">Revisa la vista previa de los datos y asegúrate de que son correctos.</p>
-            </div>
-          </div>
-          
-          <div className="flex p-3 border-l-4 border-primary bg-blue-50 rounded-r-md">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center w-9 h-9 rounded-full bg-primary text-white shadow-sm">
-                4
-              </div>
-            </div>
-            <div className="ml-4">
-              <p className="text-base text-gray-700">Haz clic en "Usar para Formulario" para continuar con el proceso.</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="mt-6 p-5 border border-yellow-200 rounded-md bg-yellow-50 shadow-sm">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-yellow-100 text-yellow-600">
-                <svg className="h-6 w-6" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-              </div>
-            </div>
-            <div className="ml-4">
-              <h3 className="text-md font-medium text-yellow-800">Nota importante</h3>
-              <p className="text-sm text-yellow-700 mt-2">
-                El archivo Excel debe tener una estructura específica con datos en formato clave-valor para un correcto funcionamiento. Cada campo debe tener una etiqueta identificable.
-              </p>
-              <ul className="mt-2 text-sm text-yellow-700 list-disc list-inside pl-2">
-                <li>Las hojas del Excel deben estar organizadas por secciones</li>
-                <li>Se recomienda mantener el formato original del Excel</li>
-                <li>Los encabezados de tablas deben estar claramente definidos</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
+
+// Enhanced Excel viewer component with better formatting support
+const ExcelViewer = ({ data }: { data: any }) => {
+  if (!data) return <div className="p-4 bg-gray-100 rounded-md">No data available</div>;
+
+  return (
+    <div className="excel-viewer bg-white rounded-lg shadow-lg p-4">
+      {Object.entries(data).map(([sheetName, sheetData]: [string, any]) => (
+        <div key={sheetName} className="mb-8">
+          <h3 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b-2 border-gray-200">{sheetName}</h3>
+          
+          {Array.isArray(sheetData) ? (
+            // Handle array data (tables)
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  {sheetData[0] && (
+                    <tr>
+                      {Object.keys(sheetData[0]).map((key) => (
+                        <th key={key} className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          {key}
+                        </th>
+                      ))}
+                    </tr>
+                  )}
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {sheetData.map((row, idx) => (
+                    <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      {Object.values(row).map((cell, cellIdx) => (
+                        <td key={cellIdx} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {formatCellValue(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            // Handle object data (sections)
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(sheetData).map(([sectionName, sectionData]: [string, any]) => (
+                <div key={sectionName} className="bg-gray-50 p-4 rounded-md">
+                  <h4 className="text-lg font-semibold text-gray-700 mb-3">{sectionName}</h4>
+                  {renderSectionData(sectionData)}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// Helper function to format cell values based on their type
+const formatCellValue = (value: any): string => {
+  // Handle null/undefined values
+  if (value === null || value === undefined) return "-";
+  
+  // Handle date values
+  if (value instanceof Date) return value.toLocaleDateString();
+  
+  // Handle numeric values with currency formatting
+  if (typeof value === 'number') {
+    // Check if it might be a currency value (based on context)
+    if (value > 1000 || Number.isInteger(value)) {
+      return new Intl.NumberFormat('es-CO', { 
+        style: 'currency', 
+        currency: 'COP',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      }).format(value);
+    }
+    
+    // Format percentage values
+    if (value < 1 && value > 0) {
+      return new Intl.NumberFormat('es-CO', {
+        style: 'percent',
+        minimumFractionDigits: 2
+      }).format(value);
+    }
+    
+    return value.toLocaleString('es-CO');
+  }
+  
+  // Handle boolean values
+  if (typeof value === 'boolean') return value ? 'Sí' : 'No';
+  
+  return String(value);
+};
+
+// Helper function to render section data with proper formatting
+const renderSectionData = (data: any) => {
+  if (Array.isArray(data)) {
+    return (
+      <div className="overflow-x-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          {data[0] && (
+            <thead className="bg-gray-100">
+              <tr>
+                {Object.keys(data[0]).map((key: string) => (
+                  <th key={key} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+          )}
+          <tbody className="bg-white divide-y divide-gray-200">
+            {data.map((row: any, idx: number) => (
+              <tr key={idx}>
+                {Object.values(row).map((value: any, i: number) => (
+                  <td key={i} className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
+                    {formatCellValue(value)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+  
+  if (typeof data === 'object' && data !== null) {
+    return (
+      <dl className="grid grid-cols-1 gap-y-2">
+        {Object.entries(data).map(([key, value]: [string, any]) => (
+          <div key={key} className="flex">
+            <dt className="text-sm font-medium text-gray-500 mr-2">{key}:</dt>
+            <dd className="text-sm text-gray-900">{formatCellValue(value)}</dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+  
+  return <span>{formatCellValue(data)}</span>;
+};
