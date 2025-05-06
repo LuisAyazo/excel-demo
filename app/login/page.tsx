@@ -63,7 +63,7 @@ export default function LoginPage() {
       {/* Left side - Logo and description */}
       <div className="w-full md:w-1/2 flex flex-col justify-center items-center p-8 md:p-16">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-40 h-40 mb-6 relative">
+          <div className="w-80 h-80 mb-6 relative">
             <Image
               src="/images/logo-oficial.png"
               alt="Universidad de Cartagena Logo"

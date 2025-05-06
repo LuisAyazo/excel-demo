@@ -150,7 +150,7 @@ export default function FinancialTrackingPage() {
 
   return (
     <PermissionGuard 
-      resource={RESOURCES.FINANCIAL_TRACKING} 
+      resource={RESOURCES.FINANCES} 
       requiredPermission={PermissionLevel.READ}
       redirectTo="/dashboard"
     >

@@ -1,74 +1,67 @@
-import React, { ReactNode } from 'react';
-import { usePermission } from '../app/auth/hooks';
-import { PermissionLevel } from '../app/auth/permissions';
-import { redirect } from 'next/navigation';
+'use client';
+
+import { ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { usePermission } from '@/app/auth/hooks';
+import { PermissionLevel } from '@/app/auth/permissions';
 
 interface PermissionGuardProps {
-  children: ReactNode;
   resource: string;
-  requiredPermission?: PermissionLevel;
-  action?: PermissionLevel;  // Añadido para compatibilidad con código existente
-  fallback?: ReactNode;
+  requiredPermission: PermissionLevel;
   redirectTo?: string;
+  children: ReactNode;
 }
 
-/**
- * Component that restricts access to children based on user permissions
- */
-const PermissionGuard: React.FC<PermissionGuardProps> = ({
-  children,
+export default function PermissionGuard({
   resource,
   requiredPermission,
-  action,
-  fallback,
-  redirectTo = '/dashboard',
-}) => {
-  // Usar action si requiredPermission no está definido
-  const permissionLevel = requiredPermission || action;
-  
-  // Verificar que se haya proporcionado al menos una de las dos propiedades
-  if (!permissionLevel) {
-    console.error('PermissionGuard: Debe proporcionar requiredPermission o action');
-    return null;
-  }
+  redirectTo = '/',
+  children,
+}: PermissionGuardProps) {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  const hasAccess = usePermission(resource, requiredPermission);
 
-  const { hasPermission, isLoading, isAuthenticated } = usePermission(resource, permissionLevel);
-
-  // Handle loading state
-  if (isLoading) {
+  // Check if the user is authenticated
+  if (status === 'loading') {
     return (
-      <div className="flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="flex items-center justify-center h-[calc(100vh-100px)]">
+        <div className="h-12 w-12 border-b-2 border-amber-600 rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  // Handle unauthenticated users
-  if (!isAuthenticated) {
-    redirect('/login');
+  // If the user doesn't have the required permission, redirect them
+  if (!hasAccess) {
+    // Use a client-side redirect for authenticated users without permission
+    if (status === 'authenticated') {
+      // If in production, perform the redirect
+      // In development, just show a warning so we can develop the UI
+      if (process.env.NODE_ENV === 'production') {
+        router.push(redirectTo);
+        return null;
+      } else {
+        console.warn(`[DEV MODE] Permission denied: ${resource}.${requiredPermission}`);
+        // In development, show the component with a warning banner
+        return (
+          <div>
+            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mb-4">
+              <p className="font-bold">Permiso denegado</p>
+              <p>Acceso restringido: {resource}.{requiredPermission}</p>
+              <p className="text-sm">Nota: Este mensaje solo aparece en modo desarrollo.</p>
+            </div>
+            {children}
+          </div>
+        );
+      }
+    } else {
+      // For unauthenticated users, redirect to sign in
+      router.push('/auth/signin');
+      return null;
+    }
   }
 
-  // Return children if user has permission
-  if (hasPermission) {
-    return <>{children}</>;
-  }
-
-  // Redirect if redirectTo is provided
-  if (redirectTo) {
-    redirect(redirectTo);
-  }
-
-  // Return fallback or default unauthorized message
-  return fallback ? (
-    <>{fallback}</>
-  ) : (
-    <div className="p-6 text-center">
-      <h3 className="text-lg font-medium text-red-600 mb-2">Acceso Restringido</h3>
-      <p className="text-gray-600">
-        No tienes permisos suficientes para acceder a este recurso.
-      </p>
-    </div>
-  );
-};
-
-export default PermissionGuard;
+  // If the user has the required permission, render the children
+  return <>{children}</>;
+}

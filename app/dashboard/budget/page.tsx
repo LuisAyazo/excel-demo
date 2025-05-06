@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import PermissionGuard from '../../../components/PermissionGuard';
-import { RESOURCES, ACTIONS } from '../../auth/permissions';
+import { RESOURCES, PermissionLevel } from '../../auth/permissions';
 
 // Mock budget data
 const budgetData = [
@@ -140,7 +140,7 @@ export default function BudgetPage() {
   };
 
   return (
-    <PermissionGuard resource={RESOURCES.BUDGET} requiredPermission={ACTIONS.READ}>
+    <PermissionGuard resource={RESOURCES.FINANCES} requiredPermission={PermissionLevel.READ}>
       <div className="container mx-auto bg-white rounded-lg shadow p-6">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-800">Gestión de Presupuesto</h1>

@@ -12,7 +12,7 @@ export enum UserRole {
 export enum PermissionLevel {
   READ = 'read',
   WRITE = 'write',
-  MANAGE = 'manage',
+  DELETE = 'delete',
   ADMIN = 'admin'
 }
 
@@ -21,76 +21,61 @@ export const ACTIONS = PermissionLevel;
 
 // Define resources
 export const RESOURCES = {
-  EXCEL: 'excel',
   USERS: 'users',
   ROLES: 'roles',
-  PROJECTS: 'projects',
-  DASHBOARD: 'dashboard',
-  BUDGET: 'budget',
-  FORMS: 'forms',
-  // Nuevos recursos
   DOCUMENTS: 'documents',
+  SETTINGS: 'settings',
+  FICHAS: 'fichas',
   HISTORY: 'history',
-  FINANCIAL_TRACKING: 'financial_tracking',
+  FINANCES: 'finances',
   REPORTS: 'reports'
+};
+
+export type Permission = {
+  resource: string;
+  level: PermissionLevel;
 };
 
 // Permission matrix defining what roles have access to which resources
 const PERMISSIONS: Record<UserRole, Record<string, PermissionLevel[]>> = {
   [UserRole.ADMIN]: {
-    [RESOURCES.EXCEL]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.USERS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.ROLES]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.PROJECTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.DASHBOARD]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.BUDGET]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.FORMS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    // Nuevos recursos
-    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.HISTORY]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.FINANCIAL_TRACKING]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
-    [RESOURCES.REPORTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE, PermissionLevel.ADMIN],
+    [RESOURCES.USERS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.ROLES]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.SETTINGS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.FICHAS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.HISTORY]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.FINANCES]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.REPORTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
   },
   [UserRole.MANAGER]: {
-    [RESOURCES.EXCEL]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
     [RESOURCES.USERS]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.ROLES]: [PermissionLevel.READ],
-    [RESOURCES.PROJECTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
-    [RESOURCES.DASHBOARD]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.BUDGET]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
-    [RESOURCES.FORMS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
-    // Nuevos recursos
-    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
+    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.SETTINGS]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.FICHAS]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.HISTORY]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.FINANCIAL_TRACKING]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.MANAGE],
+    [RESOURCES.FINANCES]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.REPORTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
   },
   [UserRole.EDITOR]: {
-    [RESOURCES.EXCEL]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.USERS]: [PermissionLevel.READ],
     [RESOURCES.ROLES]: [PermissionLevel.READ],
-    [RESOURCES.PROJECTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.DASHBOARD]: [PermissionLevel.READ],
-    [RESOURCES.BUDGET]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.FORMS]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    // Nuevos recursos
     [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.SETTINGS]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.FICHAS]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.HISTORY]: [PermissionLevel.READ],
-    [RESOURCES.FINANCIAL_TRACKING]: [PermissionLevel.READ],
+    [RESOURCES.FINANCES]: [PermissionLevel.READ],
     [RESOURCES.REPORTS]: [PermissionLevel.READ],
   },
   [UserRole.VIEWER]: {
-    [RESOURCES.EXCEL]: [PermissionLevel.READ],
     [RESOURCES.USERS]: [],
     [RESOURCES.ROLES]: [],
-    [RESOURCES.PROJECTS]: [PermissionLevel.READ],
-    [RESOURCES.DASHBOARD]: [PermissionLevel.READ],
-    [RESOURCES.BUDGET]: [PermissionLevel.READ],
-    [RESOURCES.FORMS]: [PermissionLevel.READ],
-    // Nuevos recursos: por defecto no tiene acceso
     [RESOURCES.DOCUMENTS]: [],
+    [RESOURCES.SETTINGS]: [],
+    [RESOURCES.FICHAS]: [],
     [RESOURCES.HISTORY]: [],
-    [RESOURCES.FINANCIAL_TRACKING]: [],
+    [RESOURCES.FINANCES]: [],
     [RESOURCES.REPORTS]: [],
   },
 };
@@ -101,19 +86,62 @@ interface UserWithRole {
   [key: string]: any;
 }
 
-// Function to check if a user has permission for a resource
-export function hasPermission(
-  user: UserWithRole,
-  resource: string,
-  requiredPermission: PermissionLevel
-): boolean {
-  // Default to viewer if no role is specified
-  const role = user.role || UserRole.VIEWER;
-
-  // Get permissions for this role and resource
-  const rolePermissions = PERMISSIONS[role as UserRole]?.[resource] || [];
+/**
+ * Check if a user has permission for a specific resource and permission level
+ * This function supports two overloads:
+ * 1. Check against array of permissions
+ * 2. Check against user role using the PERMISSIONS matrix
+ */
+export function hasPermission(userPermissions: Permission[], requiredPermission: Permission): boolean;
+export function hasPermission(user: UserWithRole, resource: string, requiredPermission: PermissionLevel): boolean;
+export function hasPermission(...args: any[]): boolean {
+  // Handle the first overload: (userPermissions, requiredPermission)
+  if (args.length === 2 && Array.isArray(args[0])) {
+    const [userPermissions, requiredPermission] = args as [Permission[], Permission];
+    
+    // Admin users have all permissions
+    if (userPermissions.some(p => p.resource === '*' && p.level === PermissionLevel.ADMIN)) {
+      return true;
+    }
+    
+    return userPermissions.some(permission => {
+      // Exact match for resource and level
+      if (permission.resource === requiredPermission.resource && 
+          permission.level === requiredPermission.level) {
+        return true;
+      }
+      
+      // ADMIN level for this resource grants all permissions for the resource
+      if (permission.resource === requiredPermission.resource && 
+          permission.level === PermissionLevel.ADMIN) {
+        return true;
+      }
+      
+      // Wildcard resource with matching level
+      if (permission.resource === '*' && 
+          permission.level === requiredPermission.level) {
+        return true;
+      }
+      
+      return false;
+    });
+  }
   
-  return rolePermissions.includes(requiredPermission);
+  // Handle the second overload: (user, resource, requiredPermission)
+  else if (args.length === 3 && typeof args[1] === 'string') {
+    const [user, resource, requiredPermission] = args as [UserWithRole, string, PermissionLevel];
+    
+    // Default to viewer if no role is specified
+    const role = user.role || UserRole.VIEWER;
+    
+    // Get permissions for this role and resource
+    const rolePermissions = PERMISSIONS[role as UserRole]?.[resource] || [];
+    
+    return rolePermissions.includes(requiredPermission);
+  }
+  
+  // Invalid arguments
+  return false;
 }
 
 // Type for session with user role
