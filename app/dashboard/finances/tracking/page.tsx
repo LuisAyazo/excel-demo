@@ -13,6 +13,8 @@ const trackingData = [
     projectName: 'Proyecto investigación C',
     budget: 95000000,
     totalExecuted: 45000000,
+    assigned: 65000000,
+    available: 50000000,
     lastMonth: 12000000,
     lastUpdate: '2025-03-15',
     status: 'En curso',
@@ -24,6 +26,8 @@ const trackingData = [
     projectName: 'Programa extensión D',
     budget: 75000000,
     totalExecuted: 25000000,
+    assigned: 40000000,
+    available: 50000000,
     lastMonth: 8000000,
     lastUpdate: '2025-03-10',
     status: 'En curso',
@@ -35,6 +39,8 @@ const trackingData = [
     projectName: 'Servicios académicos',
     budget: 130000000,
     totalExecuted: 85000000,
+    assigned: 110000000,
+    available: 45000000,
     lastMonth: 15000000,
     lastUpdate: '2025-03-20',
     status: 'En curso',
@@ -46,6 +52,8 @@ const trackingData = [
     projectName: 'Infraestructura',
     budget: 200000000,
     totalExecuted: 150000000,
+    assigned: 180000000,
+    available: 50000000,
     lastMonth: 30000000,
     lastUpdate: '2025-03-17',
     status: 'En curso',
@@ -57,6 +65,8 @@ const trackingData = [
     projectName: 'Capacitación docente',
     budget: 45000000,
     totalExecuted: 15000000,
+    assigned: 25000000,
+    available: 30000000,
     lastMonth: 5000000,
     lastUpdate: '2025-03-12',
     status: 'En curso',
@@ -100,10 +110,12 @@ export default function FinancialTrackingPage() {
       (acc, item) => {
         acc.totalBudget += item.budget;
         acc.totalExecuted += item.totalExecuted;
+        acc.totalAssigned += item.assigned;
+        acc.totalAvailable += item.available;
         acc.lastMonth += item.lastMonth;
         return acc;
       },
-      { totalBudget: 0, totalExecuted: 0, lastMonth: 0 }
+      { totalBudget: 0, totalExecuted: 0, totalAssigned: 0, totalAvailable: 0, lastMonth: 0 }
     );
   };
   
@@ -156,7 +168,7 @@ export default function FinancialTrackingPage() {
         </div>
 
         {/* Summary cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
           <motion.div 
             className="bg-white p-6 rounded-lg shadow"
             initial={{ opacity: 0, y: 20 }}
@@ -190,6 +202,36 @@ export default function FinancialTrackingPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.2 }}
+          >
+            <h2 className="text-sm font-medium text-gray-500 uppercase">Monto Asignado</h2>
+            <p className="mt-2 text-3xl font-bold text-blue-600">{formatCurrency(summary.totalAssigned)}</p>
+            <div className="mt-1 flex items-center">
+              <span className="text-sm text-gray-700">
+                {calculateProgress(summary.totalAssigned, summary.totalBudget)}% del presupuesto
+              </span>
+            </div>
+          </motion.div>
+          
+          <motion.div 
+            className="bg-white p-6 rounded-lg shadow"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.25 }}
+          >
+            <h2 className="text-sm font-medium text-gray-500 uppercase">Disponible</h2>
+            <p className="mt-2 text-3xl font-bold text-emerald-600">{formatCurrency(summary.totalAvailable)}</p>
+            <div className="mt-1 flex items-center">
+              <span className="text-sm text-gray-700">
+                {calculateProgress(summary.totalAvailable, summary.totalBudget)}% del presupuesto
+              </span>
+            </div>
+          </motion.div>
+
+          <motion.div 
+            className="bg-white p-6 rounded-lg shadow"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.3 }}
           >
             <h2 className="text-sm font-medium text-gray-500 uppercase">Último Mes</h2>
             <p className="mt-2 text-3xl font-bold text-amber-600">{formatCurrency(summary.lastMonth)}</p>
@@ -277,11 +319,35 @@ export default function FinancialTrackingPage() {
                   <th 
                     scope="col" 
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onClick={() => toggleSort('assigned')}
+                  >
+                    <div className="flex items-center">
+                      Monto Asignado
+                      {sortField === 'assigned' && (
+                        <span className="ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    scope="col" 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
                     onClick={() => toggleSort('totalExecuted')}
                   >
                     <div className="flex items-center">
                       Ejecutado
                       {sortField === 'totalExecuted' && (
+                        <span className="ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    scope="col" 
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer"
+                    onClick={() => toggleSort('available')}
+                  >
+                    <div className="flex items-center">
+                      Disponible
+                      {sortField === 'available' && (
                         <span className="ml-1">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                       )}
                     </div>
@@ -323,8 +389,16 @@ export default function FinancialTrackingPage() {
                         <div className="text-sm text-gray-900">{formatCurrency(item.budget)}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-gray-900">{formatCurrency(item.assigned)}</div>
+                        <div className="text-xs text-gray-500">{Math.round((item.assigned/item.budget)*100)}% del presupuesto</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-gray-900">{formatCurrency(item.totalExecuted)}</div>
                         <div className="text-xs text-gray-500">Actualizado: {item.lastUpdate}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-green-600 font-medium">{formatCurrency(item.available)}</div>
+                        <div className="text-xs text-gray-500">{Math.round((item.available/item.budget)*100)}% restante</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="w-full bg-gray-200 rounded-full h-2.5">
