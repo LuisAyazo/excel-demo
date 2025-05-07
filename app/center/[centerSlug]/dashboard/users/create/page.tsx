@@ -3,7 +3,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { getUserById } from '@/lib/auth';
 import { usePermission } from '@/app/auth/hooks';
 import { PermissionLevel, RESOURCES } from '@/app/auth/permissions';
 import PermissionGuard from '@/components/PermissionGuard';
@@ -43,7 +42,7 @@ const roleOptions = [
   }
 ];
 
-export default function EditUserPage({ params }: { params: { id: string } }) {
+export default function CreateUserPage() {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
@@ -56,39 +55,9 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [selectedRoleInfo, setSelectedRoleInfo] = useState(roleOptions.find(r => r.value === 'consulta'));
   
   const router = useRouter();
-  
-  // Load user data
-  useEffect(() => {
-    const fetchUser = async () => {
-      setIsLoading(true);
-      try {
-        const user = getUserById(params.id);
-        if (user) {
-          setFormData({
-            username: user.username,
-            email: user.email,
-            password: '',
-            confirmPassword: '',
-            full_name: user.full_name,
-            role: user.role
-          });
-        } else {
-          setErrors({ form: 'Usuario no encontrado' });
-        }
-      } catch (error) {
-        console.error('Error loading user:', error);
-        setErrors({ form: 'Error al cargar los datos del usuario' });
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchUser();
-  }, [params.id]);
   
   // Update selected role info when role changes
   useEffect(() => {
@@ -127,15 +96,14 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
       newErrors.email = 'El formato del correo electrónico es inválido';
     }
     
-    // Only validate password if it's provided (since it might be an edit without changing password)
-    if (formData.password) {
-      if (formData.password.length < 6) {
-        newErrors.password = 'La contraseña debe tener al menos 6 caracteres';
-      }
-      
-      if (formData.password !== formData.confirmPassword) {
-        newErrors.confirmPassword = 'Las contraseñas no coinciden';
-      }
+    if (!formData.password) {
+      newErrors.password = 'La contraseña es requerida';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'La contraseña debe tener al menos 6 caracteres';
+    }
+    
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Las contraseñas no coinciden';
     }
     
     if (!formData.full_name.trim()) {
@@ -163,9 +131,9 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
       // Redireccionar a la lista de usuarios tras éxito
       router.push('/dashboard/users');
     } catch (error) {
-      console.error('Error updating user:', error);
+      console.error('Error creating user:', error);
       setErrors({
-        form: 'Ocurrió un error al actualizar el usuario. Por favor intente nuevamente.'
+        form: 'Ocurrió un error al crear el usuario. Por favor intente nuevamente.'
       });
     } finally {
       setIsSubmitting(false);
@@ -176,18 +144,6 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
     focus: { scale: 1.02, borderColor: '#f59e0b', transition: { duration: 0.2 } },
     error: { x: [0, -10, 10, -10, 0], transition: { duration: 0.4 } }
   };
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center p-8">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="h-12 w-12 border-b-2 border-amber-600 rounded-full"
-        />
-      </div>
-    );
-  }
 
   return (
     <PermissionGuard
@@ -210,12 +166,12 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                 transition={{ type: "spring", stiffness: 400, damping: 10 }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-amber-600" viewBox="0 0 20 20" fill="currentColor">
-                  <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                  <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
                 </svg>
               </motion.div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-800">Editar Usuario</h1>
-                <p className="text-gray-600 text-sm mt-1">Modifique la información del usuario según sea necesario.</p>
+                <h1 className="text-2xl font-bold text-gray-800">Crear Nuevo Usuario</h1>
+                <p className="text-gray-600 text-sm mt-1">Complete todos los campos para crear un nuevo usuario en el sistema.</p>
               </div>
             </div>
           </div>
@@ -334,7 +290,7 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
               
               <div className="col-span-1">
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
-                  Contraseña <span className="text-xs text-gray-500">(dejar en blanco para mantener la actual)</span>
+                  Contraseña
                 </label>
                 <div className="relative">
                   <motion.div 
@@ -492,10 +448,10 @@ export default function EditUserPage({ params }: { params: { id: string } }) {
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </motion.svg>
-                    Guardando...
+                    Creando...
                   </>
                 ) : (
-                  'Guardar Cambios'
+                  'Crear Usuario'
                 )}
               </motion.button>
             </motion.div>

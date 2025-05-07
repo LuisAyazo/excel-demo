@@ -2,6 +2,7 @@ import { Session } from 'next-auth';
 
 // Define user roles
 export enum UserRole {
+  SUPERADMIN = 'superadmin',
   ADMIN = 'admin',
   MANAGER = 'manager',
   EDITOR = 'editor',
@@ -21,6 +22,7 @@ export const ACTIONS = PermissionLevel;
 
 // Define resources
 export const RESOURCES = {
+  CENTERS: 'centers', // New resource for Centers
   USERS: 'users',
   ROLES: 'roles',
   DOCUMENTS: 'documents',
@@ -38,7 +40,12 @@ export type Permission = {
 
 // Permission matrix defining what roles have access to which resources
 const PERMISSIONS: Record<UserRole, Record<string, PermissionLevel[]>> = {
+  [UserRole.SUPERADMIN]: {
+    // El superadmin tiene todos los permisos en todos los recursos
+    '*': [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN]
+  },
   [UserRole.ADMIN]: {
+    [RESOURCES.CENTERS]: [], // Los admin normales no tienen permisos en centros
     [RESOURCES.USERS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
     [RESOURCES.ROLES]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
     [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
@@ -49,16 +56,18 @@ const PERMISSIONS: Record<UserRole, Record<string, PermissionLevel[]>> = {
     [RESOURCES.REPORTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
   },
   [UserRole.MANAGER]: {
+    [RESOURCES.CENTERS]: [], 
     [RESOURCES.USERS]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.ROLES]: [PermissionLevel.READ],
-    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
     [RESOURCES.SETTINGS]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.FICHAS]: [PermissionLevel.READ, PermissionLevel.WRITE],
-    [RESOURCES.HISTORY]: [PermissionLevel.READ, PermissionLevel.WRITE],
+    [RESOURCES.FICHAS]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN],
+    [RESOURCES.HISTORY]: [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE],
     [RESOURCES.FINANCES]: [PermissionLevel.READ, PermissionLevel.WRITE],
     [RESOURCES.REPORTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
   },
   [UserRole.EDITOR]: {
+    [RESOURCES.CENTERS]: [],
     [RESOURCES.USERS]: [PermissionLevel.READ],
     [RESOURCES.ROLES]: [PermissionLevel.READ],
     [RESOURCES.DOCUMENTS]: [PermissionLevel.READ, PermissionLevel.WRITE],
@@ -69,6 +78,7 @@ const PERMISSIONS: Record<UserRole, Record<string, PermissionLevel[]>> = {
     [RESOURCES.REPORTS]: [PermissionLevel.READ],
   },
   [UserRole.VIEWER]: {
+    [RESOURCES.CENTERS]: [],
     [RESOURCES.USERS]: [],
     [RESOURCES.ROLES]: [],
     [RESOURCES.DOCUMENTS]: [],
@@ -126,13 +136,17 @@ export function hasPermission(...args: any[]): boolean {
       return false;
     });
   }
-  
   // Handle the second overload: (user, resource, requiredPermission)
   else if (args.length === 3 && typeof args[1] === 'string') {
     const [user, resource, requiredPermission] = args as [UserWithRole, string, PermissionLevel];
     
     // Default to viewer if no role is specified
     const role = user.role || UserRole.VIEWER;
+    
+    // Superadmin tiene acceso total a todos los recursos
+    if (role === UserRole.SUPERADMIN) {
+      return true;
+    }
     
     // Get permissions for this role and resource
     const rolePermissions = PERMISSIONS[role as UserRole]?.[resource] || [];
@@ -142,6 +156,32 @@ export function hasPermission(...args: any[]): boolean {
   
   // Invalid arguments
   return false;
+}
+
+// Helper function to convert UserRole to Permission[]
+export function getRolePermissions(role: UserRole): Permission[] {
+  if (!role) return [];
+  
+  const permissions: Permission[] = [];
+  
+  // Handle superadmin special case
+  if (role === UserRole.SUPERADMIN) {
+    return [{ resource: '*', level: PermissionLevel.ADMIN }];
+  }
+  
+  // For all other roles, extract permissions from the PERMISSIONS matrix
+  const rolePermissionsMap = PERMISSIONS[role] || {};
+  
+  Object.entries(rolePermissionsMap).forEach(([resource, levels]) => {
+    levels.forEach(level => {
+      permissions.push({
+        resource,
+        level
+      });
+    });
+  });
+  
+  return permissions;
 }
 
 // Type for session with user role
@@ -154,6 +194,7 @@ export interface SessionWithRole extends Omit<Session, 'user'> {
     name?: string | null; // Include standard user properties
     email?: string | null;
     image?: string | null;
+    centerId?: string | null; // ID del centro asignado
     [key: string]: any; // Include index signature if other dynamic properties are expected
   }
 }
@@ -161,12 +202,12 @@ export interface SessionWithRole extends Omit<Session, 'user'> {
 // Function to get session with role, including basic validation
 export function getSessionWithRole(session?: Session | null): SessionWithRole | null {
   // Check if session and required user properties exist
-  if (!session?.user?.id || !session?.user?.role) {
+  if (!session?.user?.id) {
     return null;
   }
 
   // Mapear role "usuario" a "viewer" automáticamente
-  let role = session.user.role;
+  let role = session.user.role as string;
   if (role === "usuario") {
     role = UserRole.VIEWER;
   }
@@ -178,12 +219,13 @@ export function getSessionWithRole(session?: Session | null): SessionWithRole | 
       return null;
   }
 
-  // Retornar la sesión con el role corregido
+  // Retornar la sesión con el role corregido y centerId si existe
   return {
     ...session,
     user: {
       ...session.user,
-      role: role as UserRole
+      role: role as UserRole,
+      centerId: session.user.centerId || null
     }
   } as SessionWithRole;
 }

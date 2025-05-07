@@ -27,7 +27,8 @@ export function usePermission(resource: string, level: PermissionLevel) {
     isLoading: status === 'loading',
     session: sessionWithRole,
     isAuthenticated: !!sessionWithRole,
-    userRole: sessionWithRole?.user?.role as UserRole | undefined
+    userRole: sessionWithRole?.user?.role as UserRole | undefined,
+    centerId: sessionWithRole?.user?.centerId
   };
 }
 
@@ -36,15 +37,39 @@ export function usePermission(resource: string, level: PermissionLevel) {
  * @returns The current user's role or undefined
  */
 export function useUserRole() {
-  const { data: session, status } = useSession();
+  const { data: session } = useSession();
   
   const sessionWithRole = useMemo(() => {
     return getSessionWithRole(session);
   }, [session]);
+  
+  return sessionWithRole?.user?.role as UserRole | undefined;
+}
 
-  return {
-    role: sessionWithRole?.user?.role,
-    isLoading: status === 'loading',
-    isAuthenticated: !!sessionWithRole
-  };
+/**
+ * Hook to get the current user's center ID
+ * @returns The current user's center ID or undefined
+ */
+export function useUserCenter() {
+  const { data: session } = useSession();
+  
+  const sessionWithRole = useMemo(() => {
+    return getSessionWithRole(session);
+  }, [session]);
+  
+  return sessionWithRole?.user?.centerId;
+}
+
+/**
+ * Hook to check if the current user is a superadmin
+ * @returns Boolean indicating if the user is a superadmin
+ */
+export function useIsSuperAdmin() {
+  const { data: session } = useSession();
+  
+  const sessionWithRole = useMemo(() => {
+    return getSessionWithRole(session);
+  }, [session]);
+  
+  return !!sessionWithRole?.user?.role && sessionWithRole.user.role === UserRole.SUPERADMIN;
 }

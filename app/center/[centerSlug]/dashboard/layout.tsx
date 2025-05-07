@@ -1,15 +1,13 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useParams } from "next/navigation";
 import Image from "next/image";
 import { signOut, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { usePermission } from "@/app/auth/hooks";
-import { hasPermission, getRolePermissions, PermissionLevel, UserRole } from "../auth/permissions";
+import { hasPermission, getRolePermissions, PermissionLevel, UserRole } from "@/app/auth/permissions";
 import CenterSelector from "@/components/CenterSelector";
-import { CenterProvider } from "@/components/providers/CenterContext";
-import CenterSelectorMenu from "@/components/CenterSelectorMenu";
 
 // Define types for navigation items
 interface SubItem {
@@ -19,17 +17,29 @@ interface SubItem {
   adminOnly: boolean;
 }
 
-interface NavItem {
+// Define separate types for items with and without subitems
+interface BaseNavItem {
   name: string;
   href: string;
   icon: React.ReactNode;
   adminOnly: boolean;
-  subItems?: SubItem[];
 }
 
-// Add this new interface
-interface NavItemWithSubItems extends NavItem {
+interface NavItemWithSubItems extends BaseNavItem {
   subItems: SubItem[];
+}
+
+interface NavItemWithoutSubItems extends BaseNavItem {
+  subItems?: never;
+}
+
+// NavItem can be either with subitems or without
+type NavItem = NavItemWithSubItems | NavItemWithoutSubItems;
+
+// Add a type guard function to check if the item has subitems
+function hasSubItems(item: NavItem): item is NavItemWithSubItems {
+  return Array.isArray((item as NavItemWithSubItems).subItems) && 
+         (item as NavItemWithSubItems).subItems.length > 0;
 }
 
 interface NavSection {
@@ -46,6 +56,8 @@ export default function DashboardLayout({
   const { data: session, status } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const params = useParams();
+  const centerSlug = params.centerSlug as string;
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     administration: true,
     operation: false,
@@ -98,6 +110,23 @@ export default function DashboardLayout({
     return hasPermission(permissions, { resource, level });
   };
 
+  // Function to get the correct href for navigation items
+  const getNavHref = (href: string): string => {
+    // If it's an administration route that should stay at root level
+    if (href.includes('/dashboard/users') || 
+        href.includes('/dashboard/roles') || 
+        href.includes('/dashboard/settings')) {
+      return href;
+    }
+    
+    // Otherwise, prepend the center path to dashboard routes
+    if (href.startsWith('/dashboard')) {
+      return `/center/${centerSlug}${href}`;
+    }
+    
+    return href;
+  };
+
   // Define navigation items grouped by sections
   const navigationSections = {
     // La sección "Principal" ha sido eliminada
@@ -127,7 +156,7 @@ export default function DashboardLayout({
       items: [
         {
           name: "Dashboard",
-          href: "/dashboard",
+          href: `/center/${centerSlug}/dashboard`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -153,7 +182,7 @@ export default function DashboardLayout({
         },
         {
           name: "Usuarios",
-          href: "/dashboard/users",
+          href: `/center/${centerSlug}/dashboard/users`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -174,7 +203,7 @@ export default function DashboardLayout({
         },
         {
           name: "Roles",
-          href: "/dashboard/roles",
+          href: `/center/${centerSlug}/dashboard/roles`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -195,7 +224,7 @@ export default function DashboardLayout({
         },
         {
           name: "Configuración",
-          href: "/dashboard/settings",
+          href: `/center/${centerSlug}/dashboard/settings`,
           icon: (
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 0 1 0 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 0 1 0-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28Z" />
@@ -227,7 +256,7 @@ export default function DashboardLayout({
       items: [
         {
           name: "Fichas",
-          href: "/dashboard/fichas",
+          href: `/center/${centerSlug}/dashboard/fichas`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -247,7 +276,7 @@ export default function DashboardLayout({
           subItems: [
             {
               name: "Fichas Creadas",
-              href: "/dashboard/fichas/forms", // Update from /dashboard/forms to /dashboard/fichas/forms
+              href: `/center/${centerSlug}/dashboard/fichas/forms`, // Update from /dashboard/forms to /dashboard/fichas/forms
               icon: (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -268,7 +297,7 @@ export default function DashboardLayout({
             },
             {
               name: "Cargar Ficha",
-              href: "/dashboard/fichas/cargar-ficha",
+              href: `/center/${centerSlug}/dashboard/fichas/cargar-ficha`,
               icon: (
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -292,7 +321,7 @@ export default function DashboardLayout({
         },
         {
           name: "Gestión Documental",
-          href: "/dashboard/documents",
+          href: `/center/${centerSlug}/dashboard/documents`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -313,7 +342,7 @@ export default function DashboardLayout({
         },
         {
           name: "Historial de Cambios",
-          href: "/dashboard/history",
+          href: `/center/${centerSlug}/dashboard/history`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -334,7 +363,7 @@ export default function DashboardLayout({
         },
         {
           name: "Historial de Fichas",
-          href: "/dashboard/historial-fichas",
+          href: `/center/${centerSlug}/dashboard/historial-fichas`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -376,7 +405,7 @@ export default function DashboardLayout({
       items: [
         {
           name: "Presupuesto",
-          href: "/dashboard/budget",
+          href: `/center/${centerSlug}/dashboard/budget`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -397,7 +426,7 @@ export default function DashboardLayout({
         },
         {
           name: "Seguimiento Financiero",
-          href: "/dashboard/finances/tracking",
+          href: `/center/${centerSlug}/dashboard/finances/tracking`,
           icon: (
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -418,7 +447,7 @@ export default function DashboardLayout({
     },
     {
       name: "Reportes Financieros",
-      href: "/dashboard/finances/reports",
+      href: `/center/${centerSlug}/dashboard/finances/reports`,
       icon: (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25M9 16.5v.75m3-3v3M15 12v5.25m-4.5-15H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
@@ -428,7 +457,7 @@ export default function DashboardLayout({
     },
     {
       name: "Planificación Financiera",
-      href: "/dashboard/finances/planning",
+      href: `/center/${centerSlug}/dashboard/finances/planning`,
       icon: (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
@@ -451,16 +480,18 @@ export default function DashboardLayout({
     signOut({ callbackUrl: "/login" });
   };
   
-  // Find current page name
-  const findCurrentPageName = () => {
-    for (const section of Object.values(navigationSections)) {
-      for (const item of section.items) {
-        if (item.href === pathname) {
-          return item.name;
-        }
-      }
+  // Function to check if a path is active (considering the center path structure)
+  const isPathActive = (href: string): boolean => {
+    // Direct match
+    if (pathname === href) return true;
+    
+    // If we're checking a sub-path
+    if (pathname.startsWith(href) && (href.length > 1) && 
+        (pathname.charAt(href.length) === '/' || pathname.length === href.length)) {
+      return true;
     }
-    return "Dashboard";
+    
+    return false;
   };
 
   // Filtrar secciones y items según permisos del usuario
@@ -500,208 +531,205 @@ export default function DashboardLayout({
 
   // Render sections only if they have visible items
   return (
-    <CenterProvider>
-      <div className="flex flex-col min-h-screen">
-        {/* Header */}
-        <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
-          <div className="px-4 py-3 flex items-center justify-between">
-            {/* Logo and title */}
-            <div className="flex items-center space-x-3">
-              <Link href="/dashboard" className="flex items-center">
-                <Image
-                  src="/images/logo-universidad-transparente.png"
-                  alt="Logo Universidad"
-                  width={40}
-                  height={40}
-                  className="rounded-sm border border-gray-200 dark:border-gray-600"
-                />
-                <span className="ml-2 text-lg font-medium">
-                  SIEP
-                </span>
-              </Link>
-            </div>
+    <div className="flex flex-col min-h-screen">
+      {/* Header */}
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+        <div className="px-4 py-3 flex items-center justify-between">
+          {/* Logo and title */}
+          <div className="flex items-center space-x-3">
+            <Link href="/dashboard" className="flex items-center">
+              <Image
+                src="/images/logo-universidad-transparente.png"
+                alt="Logo Universidad"
+                width={40}
+                height={40}
+                className="rounded-sm border border-gray-200 dark:border-gray-600"
+              />
+              <span className="ml-2 text-lg font-medium">
+                SIEP
+              </span>
+            </Link>
+          </div>
 
-            {/* Right side of header with user info */}
-            <div className="flex items-center space-x-4">
-              {/* Center Selector - Añadido aquí */}
-              <CenterSelectorMenu />
-              {/* User info */}
-              <div className="relative group">
-                <button className="flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-1">
-                  <span className="hidden md:block mr-2 text-right">
-                    <span className="block font-medium">
-                      {userName || "Usuario"}
-                    </span>
-                    <span className="block text-xs text-gray-500 dark:text-gray-400">
-                      {userRole || "Rol no definido"}
-                    </span>
+          {/* Right side of header with user info */}
+          <div className="flex items-center space-x-4">
+            {/* User info */}
+            <div className="relative group">
+              <button className="flex items-center text-sm rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 hover:bg-gray-100 dark:hover:bg-gray-700 p-1">
+                <span className="hidden md:block mr-2 text-right">
+                  <span className="block font-medium">
+                    {userName || "Usuario"}
                   </span>
-                  <div className="w-8 h-8 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white">
-                    {userName ? userName.charAt(0).toUpperCase() : "U"}
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">
+                    {userRole || "Rol no definido"}
+                  </span>
+                </span>
+                <div className="w-8 h-8 rounded-full bg-blue-500 dark:bg-blue-600 flex items-center justify-center text-white">
+                  {userName ? userName.charAt(0).toUpperCase() : "U"}
+                </div>
+              </button>
+              {/* Dropdown user menu con estilo mejorado */}
+              <div className="absolute right-0 z-50 mt-2 w-48 origin-top-right rounded-md bg-white dark:bg-gray-800 py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                <div className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
+                  <div className="font-medium truncate">{userEmail || "email@example.com"}</div>
+                  <div className="text-xs text-gray-500">Rol: {userRole === 'superadmin' ? 'Super Administrador' : userRole}</div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  className="w-full text-left block px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium mt-1"
+                >
+                  <div className="flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                    </svg>
+                    Cerrar sesión
                   </div>
                 </button>
-                {/* Dropdown user menu con estilo mejorado */}
-                <div className="absolute right-0 z-50 mt-2 w-48 origin-top-right rounded-md bg-white dark:bg-gray-800 py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                  <div className="px-4 py-2 text-sm text-gray-700 dark:text-gray-200 border-b border-gray-200 dark:border-gray-700">
-                    <div className="font-medium truncate">{userEmail || "email@example.com"}</div>
-                    <div className="text-xs text-gray-500">Rol: {userRole === 'superadmin' ? 'Super Administrador' : userRole}</div>
-                  </div>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left block px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 font-medium mt-1"
-                  >
-                    <div className="flex items-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 mr-2">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
-                      </svg>
-                      Cerrar sesión
-                    </div>
-                  </button>
-                </div>
               </div>
             </div>
           </div>
-        </header>
-
-        <div className="flex flex-grow">
-          {/* Sidebar */}
-          <div className="bg-white dark:bg-gray-800 w-64 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
-            <nav className="flex flex-col h-full overflow-y-auto py-4 px-3">
-              {/* Center Selector - Añadido aquí */}
-              <div className="mb-4 px-1">
-                <CenterSelector />
-              </div>
-
-              {/* Navigation sections */}
-              {Object.entries(filteredNavigationSections).map(([key, section]) => {
-                return (
-                  <div key={key} className="mb-4">
-                    <div
-                      className="flex items-center justify-between px-2 py-2 text-gray-600 dark:text-gray-300 rounded-md cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-800/20"
-                      onClick={() => toggleSection(key)}
-                    >
-                      <div className="flex items-center">
-                        <span className="mr-2">{section.icon}</span>
-                        <span className="font-medium">{section.name}</span>
-                      </div>
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        className={`h-4 w-4 transition-transform ${
-                          expandedSections[key]
-                            ? "transform rotate-180"
-                            : ""
-                        }`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth="2"
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </div>
-
-                    {/* Section items */}
-                    {expandedSections[key] && (
-                      <div className="mt-1 pl-8 space-y-1">
-                        {section.items.map((item: NavItem, index: number) => {
-                          if (!item.adminOnly || hasAdminAccess()) {
-                            const itemKey = `${key}-${index}`;
-                            const hasSubItems = item.subItems && item.subItems.length > 0;
-                            const isSubItemsExpanded = expandedSubItems[itemKey];
-
-                            return (
-                              <div key={itemKey}>
-                                {hasSubItems ? (
-                                  <>
-                                    <div
-                                      className="flex items-center justify-between px-2 py-2 text-sm text-gray-600 dark:text-gray-300 rounded-md cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-800/20"
-                                      onClick={() => toggleSubItems(itemKey)}
-                                    >
-                                      <div className="flex items-center">
-                                        <span className="mr-2">{item.icon}</span>
-                                        <span>{item.name}</span>
-                                      </div>
-                                      <svg
-                                        xmlns="http://www.w3.org/2000/svg"
-                                        className={`h-3 w-3 transition-transform ${
-                                          isSubItemsExpanded
-                                            ? "transform rotate-180"
-                                            : ""
-                                        }`}
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                      >
-                                        <path
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          strokeWidth="2"
-                                          d="M19 9l-7 7-7-7"
-                                        />
-                                      </svg>
-                                    </div>
-                                    {isSubItemsExpanded && item.subItems && (
-                                      <div className="pl-5 mt-1 space-y-1">
-                                        {item.subItems.map((subItem, subIndex) => {
-                                          if (!subItem.adminOnly || hasAdminAccess()) {
-                                            return (
-                                              <Link
-                                                key={`${itemKey}-${subIndex}`}
-                                                href={subItem.href}
-                                                className={`flex items-center px-2 py-2 text-xs rounded-md ${
-                                                  pathname === subItem.href
-                                                    ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200"
-                                                    : "text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-800/20"
-                                                }`}
-                                              >
-                                                <span className="mr-2">
-                                                  {subItem.icon}
-                                                </span>
-                                                <span>{subItem.name}</span>
-                                              </Link>
-                                            );
-                                          }
-                                          return null;
-                                        })}
-                                      </div>
-                                    )}
-                                  </>
-                                ) : (
-                                  <Link
-                                    href={item.href}
-                                    className={`flex items-center px-2 py-2 text-sm rounded-md ${
-                                      pathname === item.href
-                                        ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200"
-                                        : "text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-800/20"
-                                    }`}
-                                  >
-                                    <span className="mr-2">{item.icon}</span>
-                                    <span>{item.name}</span>
-                                  </Link>
-                                )}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Main content */}
-          <main className="flex-grow bg-gray-50 dark:bg-gray-900 p-6 overflow-y-auto">
-            {children}
-          </main>
         </div>
+      </header>
+
+      <div className="flex flex-grow">
+        {/* Sidebar */}
+        <div className="bg-white dark:bg-gray-800 w-64 border-r border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <nav className="flex flex-col h-full overflow-y-auto py-4 px-3">
+            {/* Center Selector - Añadido aquí */}
+            <div className="mb-4 px-1">
+              <CenterSelector />
+            </div>
+
+            {/* Navigation sections */}
+            {Object.entries(filteredNavigationSections).map(([key, section]) => {
+              return (
+                <div key={key} className="mb-4">
+                  <div
+                    className="flex items-center justify-between px-2 py-2 text-gray-600 dark:text-gray-300 rounded-md cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-800/20"
+                    onClick={() => toggleSection(key)}
+                  >
+                    <div className="flex items-center">
+                      <span className="mr-2">{section.icon}</span>
+                      <span className="font-medium">{section.name}</span>
+                    </div>
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className={`h-4 w-4 transition-transform ${
+                        expandedSections[key]
+                          ? "transform rotate-180"
+                          : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </div>
+
+                  {/* Section items */}
+                  {expandedSections[key] && (
+                    <div className="mt-1 pl-8 space-y-1">
+                      {section.items.map((item: NavItem, index: number) => {
+                        if (!item.adminOnly || hasAdminAccess()) {
+                          const itemKey = `${key}-${index}`;
+                          // Use the proper type guard function
+                          const itemHasSubItems = hasSubItems(item);
+                          const isSubItemsExpanded = expandedSubItems[itemKey];
+
+                          return (
+                            <div key={itemKey}>
+                              {itemHasSubItems ? (
+                                <>
+                                  <div
+                                    className="flex items-center justify-between px-2 py-2 text-sm text-gray-600 dark:text-gray-300 rounded-md cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-800/20"
+                                    onClick={() => toggleSubItems(itemKey)}
+                                  >
+                                    <div className="flex items-center">
+                                      <span className="mr-2">{item.icon}</span>
+                                      <span>{item.name}</span>
+                                    </div>
+                                    <svg
+                                      xmlns="http://www.w3.org/2000/svg"
+                                      className={`h-3 w-3 transition-transform ${
+                                        isSubItemsExpanded
+                                          ? "transform rotate-180"
+                                          : ""
+                                      }`}
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M19 9l-7 7-7-7"
+                                      />
+                                    </svg>
+                                  </div>
+                                  {isSubItemsExpanded && (
+                                    <div className="pl-5 mt-1 space-y-1">
+                                      {item.subItems.map((subItem, subIndex) => {
+                                        if (!subItem.adminOnly || hasAdminAccess()) {
+                                          return (
+                                            <Link
+                                              key={`${itemKey}-${subIndex}`}
+                                              href={getNavHref(subItem.href)}
+                                              className={`flex items-center px-2 py-2 text-xs rounded-md ${
+                                                pathname === getNavHref(subItem.href)
+                                                  ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200"
+                                                  : "text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-800/20"
+                                              }`}
+                                            >
+                                              <span className="mr-2">
+                                                {subItem.icon}
+                                              </span>
+                                              <span>{subItem.name}</span>
+                                            </Link>
+                                          );
+                                        }
+                                        return null;
+                                      })}
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <Link
+                                  href={getNavHref(item.href)}
+                                  className={`flex items-center px-2 py-2 text-sm rounded-md ${
+                                    pathname === getNavHref(item.href)
+                                      ? "bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-200"
+                                      : "text-gray-600 dark:text-gray-300 hover:bg-amber-50 dark:hover:bg-amber-800/20"
+                                  }`}
+                                >
+                                  <span className="mr-2">{item.icon}</span>
+                                  <span>{item.name}</span>
+                                </Link>
+                              )}
+                            </div>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Main content */}
+        <main className="flex-grow bg-gray-50 dark:bg-gray-900 p-6 overflow-y-auto">
+          {children}
+        </main>
       </div>
-    </CenterProvider>
+    </div>
   );
 }

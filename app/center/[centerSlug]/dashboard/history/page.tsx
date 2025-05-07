@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import PermissionGuard from '../../../components/PermissionGuard';
-import { RESOURCES, ACTIONS } from '../../auth/permissions';
+import PermissionGuard from '@/components/PermissionGuard';
+import { RESOURCES, ACTIONS } from '@/app/auth/permissions';
 
 // Mock history data for the changes
 const historyData = [

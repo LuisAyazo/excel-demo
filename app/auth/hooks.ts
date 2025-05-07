@@ -62,10 +62,55 @@ export function usePermissions(): Permission[] {
   }
   
   // Generate permissions array based on role
-  // This would ideally come from the permissions matrix
   const derivedPermissions: Permission[] = [];
   
-  // For now return an empty array
-  // In a real implementation, you would populate this based on the PERMISSIONS matrix
+  // SuperAdmin case - has all permissions on all resources
+  if (userRole === UserRole.SUPERADMIN) {
+    // Add wildcard permission for superadmin
+    derivedPermissions.push({
+      resource: '*',
+      level: PermissionLevel.ADMIN
+    });
+    
+    // Also add explicit permissions for all resources for UI representation
+    Object.values(RESOURCES).forEach(resource => {
+      [PermissionLevel.READ, PermissionLevel.WRITE, PermissionLevel.DELETE, PermissionLevel.ADMIN].forEach(level => {
+        derivedPermissions.push({ resource, level });
+      });
+    });
+    
+    return derivedPermissions;
+  }
+  
+  // For other roles, get permissions from the PERMISSIONS matrix
+  const rolePermissions = PERMISSIONS[userRole];
+  if (rolePermissions) {
+    // For each resource the role has access to
+    Object.entries(rolePermissions).forEach(([resource, levels]) => {
+      // For each permission level granted for this resource
+      levels.forEach(level => {
+        derivedPermissions.push({
+          resource,
+          level
+        });
+      });
+    });
+  }
+  
   return derivedPermissions;
+}
+
+/**
+ * Hook to check if the current user is a super admin
+ * @returns Boolean indicating if the user has super admin role
+ */
+export function useIsSuperAdmin(): boolean {
+  const { data: session } = useSession();
+  
+  if (!session?.user) {
+    return false;
+  }
+  
+  const userRole = session.user.role as string;
+  return userRole === UserRole.SUPERADMIN;
 }

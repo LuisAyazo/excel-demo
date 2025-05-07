@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn, useSession } from 'next-auth/react';
 import Link from 'next/link';
 import Image from 'next/image';
+import { AVAILABLE_CENTERS } from '../../components/providers/CenterContext';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -15,10 +16,31 @@ export default function LoginPage() {
   const searchParams = useSearchParams();
   const { status } = useSession();
 
+  // Helper function to get default center slug
+  const getDefaultCenterSlug = () => {
+    try {
+      // Try to get from localStorage first
+      const savedCenter = localStorage.getItem('selectedCenter');
+      if (savedCenter) {
+        const centerData = JSON.parse(savedCenter);
+        return centerData.slug;
+      }
+      
+      // Otherwise use the default center
+      const defaultCenter = AVAILABLE_CENTERS.find(center => center.isDefault);
+      return defaultCenter?.slug || AVAILABLE_CENTERS[0]?.slug;
+    } catch (error) {
+      console.error('Error getting default center:', error);
+      // Fallback to first center if available
+      return AVAILABLE_CENTERS[0]?.slug || 'centro-educacion-continua';
+    }
+  };
+
   useEffect(() => {
-    // Si ya está autenticado, redireccionar al dashboard
+    // Si ya está autenticado, redireccionar al dashboard específico del centro
     if (status === 'authenticated') {
-      router.push('/dashboard');
+      const centerSlug = getDefaultCenterSlug();
+      router.push(`/center/${centerSlug}/dashboard`);
     }
     
     // Si hay error en la URL (redirigido de NextAuth)
@@ -49,7 +71,8 @@ export default function LoginPage() {
       if (result?.error) {
         setError('Credenciales incorrectas. Intente de nuevo.');
       } else if (result?.ok) {
-        router.push('/dashboard');
+        const centerSlug = getDefaultCenterSlug();
+        router.push(`/center/${centerSlug}/dashboard`);
       }
     } catch (err: any) {
       setError(err.message || 'Error al iniciar sesión');

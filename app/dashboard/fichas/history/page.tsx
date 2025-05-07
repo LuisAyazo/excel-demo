@@ -203,7 +203,7 @@ export default function HistoryPage() {
   };
 
   return (
-    <PermissionGuard resource={RESOURCES.HISTORY} requiredPermission={ACTIONS.READ}>
+    <PermissionGuard resource={RESOURCES.HISTORY} action={ACTIONS.READ}>
       <div className="container mx-auto bg-white rounded-lg shadow p-6">
         <div className="mb-8">
           <h1 className="text-2xl font-bold text-gray-800">Historial de Cambios</h1>

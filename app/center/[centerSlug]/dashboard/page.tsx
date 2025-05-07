@@ -13,13 +13,63 @@ import { useCenterContext } from '@/components/providers/CenterContext';
 import StatCard from '@/components/dashboard/StatCard';
 import DashboardChart from '@/components/dashboard/DashboardChart';
 
+// Define interfaces for type safety
+interface ActivityType {
+  id: number;
+  user: string;
+  action: string;
+  target: string;
+  targetId: string;
+  date: string;
+  details: string;
+  type: string;
+}
+
+// Type for recent activity items from the API
+interface ActivityItem {
+  user: string;
+  action: string;
+  date: string;
+}
+
+// Define types for our data structures
+interface CenterStats {
+  totalFichas: number;
+  activeProjects: number;
+  pendingApprovals: number;
+  budget: {
+    total: number;
+    executed: number;
+    available: number;
+  };
+  recentActivity: ActivityItem[];
+}
+
+// Define Center interface with optional stats property
+interface Center {
+  id: string;
+  name: string;
+  stats?: {
+    [key: string]: any;
+    totalFichas: number;
+    activeProjects: number;
+    pendingApprovals: number;
+    budget: {
+      total: number;
+      executed: number;
+      available: number;
+    };
+    recentActivity: ActivityItem[];
+  };
+}
+
 // Vista principal del dashboard
 export default function DashboardPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [isLoading, setIsLoading] = useState(true);
-  const { currentCenter } = useCenterContext();  // Fixed: using currentCenter instead of selectedCenter
+  const { currentCenter } = useCenterContext();
 
   // Datos ficticios genéricos (se usarán si no hay centro seleccionado)
   const defaultData = {
@@ -164,7 +214,7 @@ export default function DashboardPage() {
       stats: [
         { 
           title: 'Fichas Creadas', 
-          value: currentCenter.stats.totalFichas, 
+          value: currentCenter.stats?.totalFichas || 0, 
           change: 12, 
           changeType: 'increase' as const, 
           period: 'vs mes anterior',
@@ -176,7 +226,7 @@ export default function DashboardPage() {
         },
         { 
           title: 'Proyectos Activos', 
-          value: currentCenter.stats.activeProjects, 
+          value: currentCenter.stats?.activeProjects || 0, 
           change: 4, 
           changeType: 'increase' as const, 
           period: 'vs mes anterior',
@@ -188,7 +238,7 @@ export default function DashboardPage() {
         },
         { 
           title: 'Aprobaciones Pendientes', 
-          value: currentCenter.stats.pendingApprovals, 
+          value: currentCenter.stats?.pendingApprovals || 0, 
           change: -3, 
           changeType: 'decrease' as const, 
           period: 'vs mes anterior',
@@ -200,7 +250,7 @@ export default function DashboardPage() {
         },
         { 
           title: 'Presupuesto Total', 
-          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats.budget.total)}`, 
+          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats?.budget.total || 0)}`, 
           change: 5, 
           changeType: 'increase' as const, 
           period: 'vs mes anterior',
@@ -212,7 +262,7 @@ export default function DashboardPage() {
         },
         { 
           title: 'Presupuesto Ejecutado', 
-          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats.budget.executed)}`, 
+          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats?.budget.executed || 0)}`, 
           change: 8, 
           changeType: 'increase' as const, 
           period: 'vs mes anterior',
@@ -224,7 +274,7 @@ export default function DashboardPage() {
         },
         { 
           title: 'Presupuesto Disponible', 
-          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats.budget.available)}`, 
+          value: `$${new Intl.NumberFormat('es-ES').format(currentCenter.stats?.budget.available || 0)}`, 
           change: 5, 
           changeType: 'increase' as const, 
           period: 'vs mes anterior',
@@ -314,7 +364,7 @@ export default function DashboardPage() {
       ],
       
       // Actividad reciente específica para el centro
-      history: currentCenter.stats.recentActivity.map((activity: any, index: number) => ({
+      history: (currentCenter.stats?.recentActivity || []).map((activity: ActivityItem, index: number) => ({
         id: index + 1,
         user: activity.user,
         action: 'ha realizado',
@@ -720,7 +770,7 @@ export default function DashboardPage() {
           </Link>
         </div>
         
-        {dashboardData.history.slice(0, 3).map((activity, index) => (
+        {dashboardData.history.slice(0, 3).map((activity: ActivityType, index: number) => (
           <motion.div 
             key={activity.id}
             className={`border-l-4 ${
